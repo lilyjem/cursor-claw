@@ -4,6 +4,9 @@ node_modules/
 # 构建产物
 dist/
 
+# 测试覆盖率
+coverage/
+
 # 运行时数据（含会话、定时任务、附件队列、聊天 ID）
 data/
 
