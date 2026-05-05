@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseCommand } from "../../src/core/commands/CommandParser.js";
+import { parseCommand } from "../../src/commands/parser.js";
 
 // 小工具：在测试里把 ParseResult 当成命令断言，避免到处写 if
 function asCmd(r: ReturnType<typeof parseCommand>) {
