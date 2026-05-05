@@ -1,0 +1,29 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+
+# 运行时数据（含会话、定时任务、附件队列、聊天 ID）
+data/
+
+# 配置（含 token / API key）
+config.json
+.env
+.env.local
+.env.*.local
+
+# 日志
+*.log
+logs/
+
+# IDE / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# 临时文件
+*.tmp
+*.swp
+*.swo
