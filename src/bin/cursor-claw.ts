@@ -46,7 +46,15 @@ async function main(): Promise<void> {
   });
 
   messenger.on("text", (msg) => {
-    if (!access.isAllowed(msg.userId)) return;
+    // 不论是否被白名单接受都先记一行 trace，方便用户首次配置时排查
+    logger.info(
+      { userId: msg.userId, username: msg.username, len: msg.text.length },
+      "incoming text",
+    );
+    if (!access.isAllowed(msg.userId)) {
+      logger.warn({ userId: msg.userId }, "userId 不在 allowedUserIds，丢弃");
+      return;
+    }
     void handleText(msg.chatId, msg.text);
   });
 
