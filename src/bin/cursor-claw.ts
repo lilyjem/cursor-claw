@@ -88,20 +88,35 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
 
   async function handleText(chatId: string, text: string): Promise<void> {
-    const parsed = parseCommand(text);
-    if (parsed.type === "command") {
-      await dispatchCommand(parsed, {
-        chatId,
-        messenger,
-        registry,
-        session,
-        orchestrator,
-      });
-      return;
+    // 顶层 try/catch：渲染失败、Telegram 400/429 等绝不能让整个进程崩
+    try {
+      const parsed = parseCommand(text);
+      if (parsed.type === "command") {
+        await dispatchCommand(parsed, {
+          chatId,
+          messenger,
+          registry,
+          session,
+          orchestrator,
+        });
+        return;
+      }
+      // 普通文本走 prompt 路径；先剥 ! force 前缀
+      const { force, text: clean } = parseForcePrefix(parsed.text);
+      await orchestrator.runPrompt({ chatId, text: clean, force });
+    } catch (e) {
+      logger.error({ err: (e as Error).message }, "handleText 顶层异常");
+      try {
+        // 用 plain 模式回个最终错误提示，避免被 HTML 解析坑住
+        await messenger.sendText(
+          chatId,
+          `内部错误：${(e as Error).message}`.slice(0, 800),
+          { parseMode: "plain" },
+        );
+      } catch {
+        /* 最后手段：什么都不做，避免再抛 */
+      }
     }
-    // 普通文本走 prompt 路径；先剥 ! force 前缀
-    const { force, text: clean } = parseForcePrefix(parsed.text);
-    await orchestrator.runPrompt({ chatId, text: clean, force });
   }
 }
 

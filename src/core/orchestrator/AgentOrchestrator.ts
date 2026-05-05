@@ -8,6 +8,11 @@ import { decideBusyAction, type RunStatus } from "./busyPolicy.js";
 import { markdownToHtml } from "../render/markdownToHtml.js";
 import type { IAgentRuntime, RuntimeAgent, RuntimeRun } from "./runtime.js";
 
+// HTML 转义：错误文本里可能含 < > & 之类，直接拼到 HTML parse_mode 会破坏标签
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export interface OrchestratorDeps {
   messenger: IMessenger;
   runtime: IAgentRuntime;
@@ -79,8 +84,10 @@ export class AgentOrchestrator {
         force: action === "force-replace",
       });
     } catch (e) {
-      logger.error({ err: (e as Error).message }, "agent.send failed");
-      await renderer.finalize(`\n⚠️ Error: ${(e as Error).message}`);
+      const msg = (e as Error).message;
+      logger.error({ err: msg }, "agent.send failed");
+      // 错误文本可能含 < > 等会破坏 Telegram HTML，先 escape 再发；并裁掉过长内容
+      await renderer.finalize(`\n⚠️ Error: ${escapeHtml(msg.slice(0, 400))}`);
       return;
     }
     entry.activeRun = run;
@@ -109,7 +116,15 @@ export class AgentOrchestrator {
       if (r.status === "cancelled") {
         await renderer.finalize("\n<i>(已取消)</i>");
       } else if (r.status === "error") {
-        await renderer.finalize(`\n⚠️ Error`);
+        // SDK 把错误描述放在 result 字段，server 端打全文 + Telegram 端展示前 N 字以便排错
+        logger.error(
+          { err: r.result, durationMs: r.durationMs },
+          "run finished with error",
+        );
+        const tail = r.result
+          ? `\n⚠️ Error: ${escapeHtml(r.result.slice(0, 400))}`
+          : "\n⚠️ Error";
+        await renderer.finalize(tail);
       } else {
         await renderer.finalize();
       }

@@ -8,6 +8,7 @@ import type {
   CreateAgentOptions,
   ResumeAgentOptions,
 } from "./runtime.js";
+import { logger } from "../../logger.js";
 
 /**
  * 把 IAgentRuntime 桥到真实 @cursor/sdk。
@@ -23,12 +24,14 @@ export class CursorSdkRuntime implements IAgentRuntime {
   constructor(private readonly apiKey: string) {}
 
   async create(opts: CreateAgentOptions): Promise<RuntimeAgent> {
+    const model = opts.model
+      ? { id: opts.model.id, params: opts.model.params }
+      : { id: "default" };
+    logger.info({ cwd: opts.cwd, model }, "Agent.create");
     const sdk = await Agent.create({
       apiKey: this.apiKey,
       agentId: opts.agentId,
-      model: opts.model
-        ? { id: opts.model.id, params: opts.model.params }
-        : { id: "default" },
+      model,
       local: {
         cwd: opts.cwd,
         settingSources: opts.settingSources ?? ["project", "user"],
@@ -89,7 +92,6 @@ class SdkRunWrapper implements RuntimeRun {
     for await (const e of this.inner.stream()) {
       switch (e.type) {
         case "assistant": {
-          // assistant 一条消息可能含多个 content block；只把 text block 推出
           for (const block of e.message.content) {
             if (block.type === "text") {
               yield { type: "assistant", text: block.text };
@@ -108,7 +110,19 @@ class SdkRunWrapper implements RuntimeRun {
             args: e.args,
           };
           break;
-        // system / user / status / request / task 在 M1 不渲染
+        case "status":
+          // SDK 报错的真正描述往往在这里：status=ERROR + message="...."
+          logger.info(
+            { status: e.status, message: e.message },
+            "sdk status event",
+          );
+          break;
+        case "system":
+          logger.debug({ subtype: e.subtype, model: e.model }, "sdk system");
+          break;
+        case "task":
+          logger.debug({ status: e.status, text: e.text }, "sdk task");
+          break;
         default:
           break;
       }
