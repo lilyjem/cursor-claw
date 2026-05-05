@@ -1,0 +1,15 @@
+{
+  "telegram": {
+    "botToken": "REPLACE_OR_SET_TELEGRAM_BOT_TOKEN_ENV",
+    "allowedUserIds": [123456789],
+    "parseMode": "HTML"
+  },
+  "cursor": {
+    "apiKey": "REPLACE_OR_SET_CURSOR_API_KEY_ENV",
+    "defaultModel": { "id": "auto", "params": [] },
+    "settingSources": ["project", "user"]
+  },
+  "workspaces": { "autoRegisterCwd": true },
+  "paths": { "dataDir": "./data" },
+  "logging": { "level": "info" }
+}
