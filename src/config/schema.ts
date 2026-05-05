@@ -12,12 +12,13 @@ export const ConfigSchema = z.object({
     apiKey: z.string().min(1),
     defaultModel: z
       .object({
-        id: z.string().default("auto"),
+        // Cursor SDK 的"自动选择"模型 id 是 "default"（不是 "auto"，会被 ConfigurationError 拒绝）
+        id: z.string().default("default"),
         params: z
           .array(z.object({ id: z.string(), value: z.string() }))
           .default([]),
       })
-      .default({ id: "auto", params: [] }),
+      .default({ id: "default", params: [] }),
     settingSources: z
       .array(z.enum(["project", "user", "team", "mdm", "plugins", "all"]))
       .default(["project", "user"]),

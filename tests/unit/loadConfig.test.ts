@@ -31,7 +31,7 @@ describe("loadConfig", () => {
     expect(cfg.telegram.parseMode).toBe("HTML");
     expect(cfg.telegram.allowedUserIds).toEqual([42]);
     expect(cfg.cursor.apiKey).toBe("K");
-    expect(cfg.cursor.defaultModel.id).toBe("auto");
+    expect(cfg.cursor.defaultModel.id).toBe("default");
     expect(cfg.cursor.settingSources).toEqual(["project", "user"]);
     expect(cfg.paths.dataDir).toBe("./data");
   });

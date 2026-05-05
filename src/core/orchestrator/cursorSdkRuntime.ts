@@ -16,7 +16,8 @@ import type {
  * - SDK 的 Run.stream 返回 SDKMessage union（system/user/assistant/tool_call/thinking/status/...），
  *   我们只把 orchestrator 关心的 assistant text + thinking + tool_call 转出去。
  * - SDK 的 force 参数是 SendOptions.local.force，不是顶级 force。
- * - LocalAgent 的 model 必填，default 用 "auto"。
+ * - LocalAgent 的 model 必填，fallback 用 SDK 内置的 "default"（注意：不是 "auto"，
+ *   "auto" 会被 SDK 的 ConfigurationError 拒绝）。
  */
 export class CursorSdkRuntime implements IAgentRuntime {
   constructor(private readonly apiKey: string) {}
@@ -27,7 +28,7 @@ export class CursorSdkRuntime implements IAgentRuntime {
       agentId: opts.agentId,
       model: opts.model
         ? { id: opts.model.id, params: opts.model.params }
-        : { id: "auto" },
+        : { id: "default" },
       local: {
         cwd: opts.cwd,
         settingSources: opts.settingSources ?? ["project", "user"],
