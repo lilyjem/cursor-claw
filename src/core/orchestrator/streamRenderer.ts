@@ -72,6 +72,10 @@ export class StreamRenderer {
     this.status = "";
     if (extra) this.textBuffer += extra;
     if (this.flushTimer) clearTimeout(this.flushTimer);
+    // finalize 总要确保最终状态写到 messenger 上：
+    // 即使 dirty=false（例如 cancel 路径下没 pushText），也强制 flush 一次，
+    // 把状态行清掉 / 把 extra 追加上去
+    this.dirty = true;
     await this.flushNow();
   }
 

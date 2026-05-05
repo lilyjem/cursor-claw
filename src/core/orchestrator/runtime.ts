@@ -1,0 +1,50 @@
+// 把 @cursor/sdk 的能力抽象成中立的运行时接口，方便：
+// 1) 用 StubRuntime 在单测中跑 orchestrator 端到端流程；
+// 2) 后续切换到云端 / 自托管 SDK 时只换实现，不改 orchestrator。
+
+export interface IAgentRuntime {
+  create(opts: CreateAgentOptions): Promise<RuntimeAgent>;
+  resume(agentId: string, opts: ResumeAgentOptions): Promise<RuntimeAgent>;
+}
+
+export interface CreateAgentOptions {
+  agentId?: string;
+  cwd: string;
+  model?: { id: string; params?: Array<{ id: string; value: string }> };
+  settingSources?: ("project" | "user" | "team" | "mdm" | "plugins" | "all")[];
+  mcpServers?: Record<string, unknown>;
+}
+
+export interface ResumeAgentOptions {
+  cwd: string;
+  model?: { id: string; params?: Array<{ id: string; value: string }> };
+  settingSources?: ("project" | "user" | "team" | "mdm" | "plugins" | "all")[];
+}
+
+export interface RuntimeAgent {
+  agentId: string;
+  send(text: string, opts?: { force?: boolean }): Promise<RuntimeRun>;
+  dispose(): Promise<void>;
+}
+
+export interface RuntimeRun {
+  status: "running" | "finished" | "error" | "cancelled";
+  stream(): AsyncGenerator<RuntimeStreamEvent, void>;
+  wait(): Promise<{
+    status: "finished" | "error" | "cancelled";
+    result?: string;
+    durationMs?: number;
+  }>;
+  cancel(): Promise<void>;
+}
+
+// 中立的流事件：去掉 SDK 内部那些不稳定的字段，只保留 orchestrator 真正用到的
+export type RuntimeStreamEvent =
+  | { type: "assistant"; text: string }
+  | { type: "thinking"; text: string }
+  | {
+      type: "tool_call";
+      status: "running" | "completed" | "error";
+      name: string;
+      args?: unknown;
+    };
