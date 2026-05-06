@@ -73,6 +73,16 @@ describe("attach CLI（spawn）", () => {
       expect(entry.caption).toBe("hi");
       // pending 文件存在
       await stat(entry.path);
+      // F-13: pending 拷贝出来的文件 mode 必须是 0o600
+      // queue.jsonl 必须是 0o600；pending 目录必须是 0o700
+      if (process.platform !== "win32") {
+        const pendingFileSt = await stat(entry.path);
+        expect(pendingFileSt.mode & 0o777).toBe(0o600);
+        const queueSt = await stat(join(dataDir, "attachments", "queue.jsonl"));
+        expect(queueSt.mode & 0o777).toBe(0o600);
+        const pendingDirSt = await stat(join(dataDir, "attachments", "pending"));
+        expect(pendingDirSt.mode & 0o777).toBe(0o700);
+      }
     },
   );
 

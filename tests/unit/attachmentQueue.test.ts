@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AttachmentQueue } from "../../src/core/attachments/AttachmentQueue.js";
@@ -63,6 +63,44 @@ describe("AttachmentQueue", () => {
       { cwd: "/a", kind: "image", path: "/2", queuedAt: 2 },
     ]);
   });
+
+  // F-13：AttachmentQueue 写入的 jsonl 文件应限制为 0600
+  // queue.jsonl 含 chatId / cwd / 文件路径，默认 0644 在多用户主机上会泄露。
+  it.skipIf(process.platform === "win32")(
+    "F-13: append 后文件 mode 必须是 0o600",
+    async () => {
+      const q = new AttachmentQueue(queuePath);
+      await q.append({ cwd: "/a", kind: "image", path: "/p1", queuedAt: 1 });
+      const st = await stat(queuePath);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  // F-13：rewrite 通过 tmp + rename，rename 后文件 mode 也应是 0o600
+  it.skipIf(process.platform === "win32")(
+    "F-13: rewrite 后文件 mode 必须是 0o600",
+    async () => {
+      const q = new AttachmentQueue(queuePath);
+      await q.append({ cwd: "/a", kind: "image", path: "/p1", queuedAt: 1 });
+      await q.rewrite([
+        { cwd: "/a", kind: "image", path: "/q", queuedAt: 1 },
+      ]);
+      const st = await stat(queuePath);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  // F-13：AttachmentQueue 创建父目录时应是 0o700
+  it.skipIf(process.platform === "win32")(
+    "F-13: 父目录被 mkdir 时 mode 必须是 0o700",
+    async () => {
+      const sub = join(dir, "nested");
+      const q = new AttachmentQueue(join(sub, "queue.jsonl"));
+      await q.append({ cwd: "/a", kind: "image", path: "/p1", queuedAt: 1 });
+      const st = await stat(sub);
+      expect(st.mode & 0o777).toBe(0o700);
+    },
+  );
 
   it("空行 / 损坏行被跳过且不抛错", async () => {
     await writeFile(

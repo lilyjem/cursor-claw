@@ -24,8 +24,12 @@ export class AttachmentQueue {
 
   // 追加一条条目；目录若不存在自动创建
   async append(entry: AttachmentEntry): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await appendFile(this.filePath, JSON.stringify(entry) + "\n", "utf8");
+    // F-13：queue.jsonl 含 chatId / cwd / 用户文件路径，限制为 0700/0600
+    await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
+    await appendFile(this.filePath, JSON.stringify(entry) + "\n", {
+      encoding: "utf8",
+      mode: 0o600,
+    });
   }
 
   // 读取所有条目；文件不存在返回空数组
@@ -59,13 +63,14 @@ export class AttachmentQueue {
 
   // 用一组新 entries 原子地替换整文件（tmp + rename）
   async rewrite(items: AttachmentEntry[]): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
+    // F-13：见 append 注释，rewrite 落盘也走 0700/0600
+    await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
     const content =
       items.length === 0
         ? ""
         : items.map((i) => JSON.stringify(i)).join("\n") + "\n";
     const tmp = `${this.filePath}.tmp`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
     await rename(tmp, this.filePath);
   }
 }
