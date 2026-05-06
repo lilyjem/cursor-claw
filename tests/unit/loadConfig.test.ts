@@ -78,4 +78,27 @@ describe("loadConfig", () => {
     );
     await expect(loadConfig({ configPath: p })).rejects.toThrow(/allowedUserIds/);
   });
+
+  // M2：reminders / attachments / images 三段在用户没显式给值时也应有合理默认值
+  it("M2 新字段 reminders / attachments / images 都有 default", async () => {
+    const path = join(dir, "config.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        telegram: { botToken: "x", allowedUserIds: [1] },
+        cursor: { apiKey: "y" },
+      }),
+      "utf8",
+    );
+    const cfg = await loadConfig({ configPath: path });
+    expect(cfg.reminders.timezone).toBe("Asia/Shanghai");
+    expect(cfg.reminders.maxAheadDays).toBe(30);
+    expect(cfg.attachments.maxFileSizeBytes).toBe(20 * 1024 * 1024);
+    expect(cfg.attachments.maxAttachmentsPerFlush).toBe(10);
+    expect(cfg.attachments.maxRetries).toBe(3);
+    expect(cfg.images.maxImagesPerPrompt).toBe(8);
+    expect(cfg.images.defaultPromptSingle).toBe("请分析这张图片");
+    expect(cfg.images.defaultPromptMulti).toBe("请分析这些图片");
+    expect(cfg.images.mediaGroupDebounceMs).toBe(200);
+  });
 });

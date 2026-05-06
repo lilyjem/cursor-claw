@@ -34,6 +34,44 @@ export const ConfigSchema = z.object({
   logging: z
     .object({ level: z.enum(["debug", "info", "warn", "error"]).default("info") })
     .default({ level: "info" }),
+  // M2：提醒功能配置（时区 + 最长提前天数）
+  reminders: z
+    .object({
+      timezone: z.string().default("Asia/Shanghai"),
+      maxAheadDays: z.number().int().min(1).max(365).default(30),
+    })
+    .default({ timezone: "Asia/Shanghai", maxAheadDays: 30 }),
+  // M2：出站附件队列与投递策略
+  attachments: z
+    .object({
+      maxFileSizeBytes: z
+        .number()
+        .int()
+        .min(1024)
+        .max(50 * 1024 * 1024)
+        .default(20 * 1024 * 1024),
+      maxAttachmentsPerFlush: z.number().int().min(1).max(50).default(10),
+      maxRetries: z.number().int().min(0).max(5).default(3),
+    })
+    .default({
+      maxFileSizeBytes: 20 * 1024 * 1024,
+      maxAttachmentsPerFlush: 10,
+      maxRetries: 3,
+    }),
+  // M2：入站图片配置（最大张数、默认 prompt、media_group debounce）
+  images: z
+    .object({
+      maxImagesPerPrompt: z.number().int().min(1).max(16).default(8),
+      defaultPromptSingle: z.string().default("请分析这张图片"),
+      defaultPromptMulti: z.string().default("请分析这些图片"),
+      mediaGroupDebounceMs: z.number().int().min(50).max(2000).default(200),
+    })
+    .default({
+      maxImagesPerPrompt: 8,
+      defaultPromptSingle: "请分析这张图片",
+      defaultPromptMulti: "请分析这些图片",
+      mediaGroupDebounceMs: 200,
+    }),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;

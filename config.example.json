@@ -11,5 +11,8 @@
   },
   "workspaces": { "autoRegisterCwd": true },
   "paths": { "dataDir": "./data" },
-  "logging": { "level": "info" }
+  "logging": { "level": "info" },
+  "reminders": { "timezone": "Asia/Shanghai", "maxAheadDays": 30 },
+  "attachments": { "maxFileSizeBytes": 20971520, "maxAttachmentsPerFlush": 10, "maxRetries": 3 },
+  "images": { "maxImagesPerPrompt": 8, "mediaGroupDebounceMs": 200 }
 }
