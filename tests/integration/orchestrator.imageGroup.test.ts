@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentOrchestrator } from "../../src/core/orchestrator/AgentOrchestrator.js";
 import { WorkspaceRegistry } from "../../src/core/workspace/WorkspaceRegistry.js";
 import { SessionStore } from "../../src/core/session/SessionStore.js";
+import { AttachmentQueue } from "../../src/core/attachments/AttachmentQueue.js";
+import { AttachmentDispatcher } from "../../src/core/attachments/AttachmentDispatcher.js";
 import { StubMessenger } from "../helpers/StubMessenger.js";
 import { StubAgentRuntime } from "../helpers/StubAgent.js";
 
@@ -88,6 +90,45 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
 
     expect(agent.lastSend?.images?.length).toBe(3);
     expect(agent.lastSend?.force).toBe(false);
+  });
+
+  it("run 结束后 dispatcher 把队列条目发出去", async () => {
+    const queuePath = join(dataDir, "queue.jsonl");
+    const pendingDir = join(dataDir, "pending");
+    await mkdir(pendingDir, { recursive: true });
+    const f = join(pendingDir, "x.png");
+    await writeFile(f, Buffer.from([1]));
+    const queue = new AttachmentQueue(queuePath);
+    const ws = registry.getActive()!;
+    await queue.append({
+      cwd: ws.path,
+      kind: "image",
+      path: f,
+      queuedAt: 1,
+    });
+    const dispatcher = new AttachmentDispatcher({
+      queue,
+      messenger,
+      maxRetries: 3,
+      maxPerFlush: 10,
+    });
+    const orch2 = new AgentOrchestrator({
+      messenger,
+      runtime,
+      registry,
+      session,
+      streamOptions: { throttleMs: 1, maxLen: 1000 },
+      defaultModel: { id: "default", params: [] },
+      attachmentDispatcher: dispatcher,
+    });
+    const p = orch2.runPrompt({ chatId: "1", text: "hi", force: false });
+    const agent = await waitFor(() => runtime.agents[0]);
+    const run = await waitFor(() => agent.currentRun);
+    run.setScript([{ type: "assistant", text: "ok" }]);
+    await p;
+    expect(messenger.sentImages.length).toBe(1);
+    expect((await queue.readAll()).length).toBe(0);
+    await orch2.dispose();
   });
 
   it("无活跃 workspace 时回提示且不调 send", async () => {

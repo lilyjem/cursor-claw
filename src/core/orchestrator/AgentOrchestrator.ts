@@ -7,6 +7,7 @@ import { summarizeTool } from "./toolSummary.js";
 import { decideBusyAction, type RunStatus } from "./busyPolicy.js";
 import { markdownToHtml } from "../render/markdownToHtml.js";
 import type { IAgentRuntime, RuntimeAgent, RuntimeRun } from "./runtime.js";
+import type { AttachmentDispatcher } from "../attachments/AttachmentDispatcher.js";
 
 // HTML 转义：错误文本里可能含 < > & 之类，直接拼到 HTML parse_mode 会破坏标签
 function escapeHtml(s: string): string {
@@ -20,6 +21,9 @@ export interface OrchestratorDeps {
   session: SessionStore;
   streamOptions: StreamRendererOptions;
   defaultModel: { id: string; params: Array<{ id: string; value: string }> };
+  // M2: 注入后会在每次 runInternal 末尾发当前 cwd 的 attach 队列；不注入则跳过。
+  // 设为可选是为了让单测可以独立验证 orchestrator 行为，不受 dispatcher 影响。
+  attachmentDispatcher?: AttachmentDispatcher;
 }
 
 interface PoolEntry {
@@ -154,6 +158,20 @@ export class AgentOrchestrator {
       }
     } finally {
       if (entry.activeRun === run) entry.activeRun = undefined;
+    }
+
+    // M2: run 结束（无论 finished / cancelled / error）都尝试把队列里属于
+    // 当前 workspace 的附件发给同一 chatId。attach CLI 是 agent 在 run 期间调的，
+    // 所以这里清场最稳妥。dispatcher 自己处理失败/重试/丢弃。
+    if (this.deps.attachmentDispatcher) {
+      try {
+        await this.deps.attachmentDispatcher.flushForCwd(ws.path, input.chatId);
+      } catch (e) {
+        logger.error(
+          { err: (e as Error).message },
+          "dispatcher.flushForCwd 失败",
+        );
+      }
     }
   }
 
