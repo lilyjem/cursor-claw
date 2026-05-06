@@ -20,5 +20,10 @@
     "defaultPromptSingle": "请分析这张图片",
     "defaultPromptMulti": "请分析这些图片",
     "mediaGroupDebounceMs": 800
+  },
+  "rateLimit": {
+    "message": { "capacity": 4, "refillPerSec": 2 },
+    "agentCreate": { "capacity": 10, "refillPerSec": 0.1667 },
+    "reminders": { "maxPerUser": 100 }
   }
 }

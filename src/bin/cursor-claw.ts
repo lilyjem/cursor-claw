@@ -17,6 +17,8 @@ import { parseCommand } from "../commands/parser.js";
 import { dispatchCommand } from "../commands/dispatch.js";
 import { parseForcePrefix } from "../core/orchestrator/busyPolicy.js";
 import { sanitizeForOutput } from "../util/sanitize.js";
+import { RateLimiter } from "../core/rateLimit/RateLimiter.js";
+import { rateLimitGuard } from "./wiring/rateLimitGuard.js";
 
 // cursor-claw 主入口（M1 + M2）：加载 config → 装配单进程依赖 → 启 long-polling
 async function main(): Promise<void> {
@@ -86,6 +88,15 @@ async function main(): Promise<void> {
   const reminderStore = new ReminderStore(join(dataDir, "reminders.json"));
   await reminderStore.init();
 
+  // F-06: 三层 RateLimiter（messenger 层 / agent.create 层）
+  // ReminderQuota 走独立路径（PR e），不走这里
+  const limiter = new RateLimiter({
+    buckets: {
+      msg: cfg.rateLimit.message,
+      agentCreate: cfg.rateLimit.agentCreate,
+    },
+  });
+
   const orchestrator = new AgentOrchestrator({
     messenger,
     runtime,
@@ -126,7 +137,18 @@ async function main(): Promise<void> {
       logger.warn({ userId: msg.userId }, "userId 不在 allowedUserIds，丢弃");
       return;
     }
-    void handleText(msg.chatId, msg.text, msg.userId);
+    // F-06：白名单通过后再做 messenger 限速；deny 则 guard 内部已通知用户
+    void (async () => {
+      const ok = await rateLimitGuard({
+        limiter,
+        messenger,
+        chatId: msg.chatId,
+        userId: msg.userId,
+        key: "msg",
+      });
+      if (!ok) return;
+      await handleText(msg.chatId, msg.text, msg.userId);
+    })();
   });
 
   // M2：旧 image 事件保留 listener 注册（向后兼容）但不再做事，
@@ -142,7 +164,19 @@ async function main(): Promise<void> {
       { userId: msg.userId, n: msg.images.length, hasCaption: !!msg.caption },
       "incoming imageGroup",
     );
-    void handleImageGroup(msg.chatId, msg.images, msg.caption);
+    // F-06：图片消息也走同一 "msg" bucket（与文本消息共享 quota，避免攻击者
+    // 用图片绕过文本限速；同 user 下两路径加在一起仍受 capacity 4 / 2 msg-per-sec 约束）
+    void (async () => {
+      const ok = await rateLimitGuard({
+        limiter,
+        messenger,
+        chatId: msg.chatId,
+        userId: msg.userId,
+        key: "msg",
+      });
+      if (!ok) return;
+      await handleImageGroup(msg.chatId, msg.images, msg.caption);
+    })();
   });
 
   await messenger.start();
