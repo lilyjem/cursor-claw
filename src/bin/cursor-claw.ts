@@ -112,6 +112,8 @@ async function main(): Promise<void> {
     // F-10：把 sandboxOptions 沿 orchestrator → runtime → SDK 一路透传。
     // schema 默认 enabled=true；用户可在 config.json 显式 false 关闭。
     sandboxOptions: cfg.cursor.sandboxOptions,
+    // F-06：agent.create / resume cached miss 前做单用户限速
+    rateLimiter: limiter,
   });
 
   const scheduler = new ReminderScheduler({
@@ -175,7 +177,7 @@ async function main(): Promise<void> {
         key: "msg",
       });
       if (!ok) return;
-      await handleImageGroup(msg.chatId, msg.images, msg.caption);
+      await handleImageGroup(msg.chatId, msg.images, msg.caption, msg.userId);
     })();
   });
 
@@ -213,7 +215,8 @@ async function main(): Promise<void> {
   async function handleImageGroup(
     chatId: string,
     images: Array<{ data: string; mimeType: string }>,
-    caption?: string,
+    caption: string | undefined,
+    userId: number,
   ): Promise<void> {
     try {
       const cap = cfg.images.maxImagesPerPrompt;
@@ -236,6 +239,7 @@ async function main(): Promise<void> {
         text: clean,
         images: used,
         force,
+        userId,
       });
     } catch (e) {
       logger.error({ err: (e as Error).message }, "handleImageGroup 顶层异常");
@@ -280,7 +284,7 @@ async function main(): Promise<void> {
       }
       // 普通文本走 prompt 路径；先剥 ! force 前缀
       const { force, text: clean } = parseForcePrefix(parsed.text);
-      await orchestrator.runPrompt({ chatId, text: clean, force });
+      await orchestrator.runPrompt({ chatId, text: clean, force, userId });
     } catch (e) {
       logger.error({ err: (e as Error).message }, "handleText 顶层异常");
       try {

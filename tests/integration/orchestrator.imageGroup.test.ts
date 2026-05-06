@@ -58,6 +58,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
       text: "这是什么？",
       images: [{ data: "AAA=", mimeType: "image/jpeg" }],
       force: false,
+      userId: 0,
     });
     const agent = await waitFor(() => runtime.agents[0]);
     const run = await waitFor(() => agent.currentRun);
@@ -82,6 +83,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
         { data: "C", mimeType: "image/png" },
       ],
       force: false,
+      userId: 0,
     });
     const agent = await waitFor(() => runtime.agents[0]);
     const run = await waitFor(() => agent.currentRun);
@@ -122,7 +124,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
       defaultModel: { id: "default", params: [] },
       attachmentDispatcher: dispatcher,
     });
-    const p = orch2.runPrompt({ chatId: "1", text: "hi", force: false });
+    const p = orch2.runPrompt({ chatId: "1", text: "hi", force: false, userId: 0 });
     const agent = await waitFor(() => runtime.agents[0]);
     const run = await waitFor(() => agent.currentRun);
     run.setScript([{ type: "assistant", text: "ok" }]);
@@ -138,6 +140,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
         chatId: "1",
         kind: "text",
         text: "起床啦",
+        userId: 0,
       });
       expect(r.delivered).toBe(true);
       expect(
@@ -150,6 +153,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
         chatId: "1",
         kind: "prompt",
         prompt: "查 BTC 价格",
+        userId: 0,
       });
       const agent = await waitFor(() => runtime.agents[0]);
       const run = await waitFor(() => agent.currentRun);
@@ -179,6 +183,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
       text: "看",
       images: [{ data: "A", mimeType: "image/jpeg" }],
       force: false,
+      userId: 0,
     });
     expect(runtime2.agents.length).toBe(0);
     expect(

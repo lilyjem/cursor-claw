@@ -10,6 +10,7 @@ export interface SchedulerDeps {
     text?: string;
     prompt?: string;
     workspaceId?: string;
+    userId: number;
   }) => Promise<{ delivered: boolean; busy?: boolean }>;
   sendText: (chatId: string, text: string) => Promise<void>;
 }
@@ -124,6 +125,7 @@ export class ReminderScheduler {
           chatId: r.chatId,
           kind: "text",
           text: r.text,
+          userId: r.createdBy,
         });
         await this.deps.store.remove(id);
         this.attempts.delete(id);
@@ -135,6 +137,7 @@ export class ReminderScheduler {
         kind: "prompt",
         prompt: r.prompt,
         workspaceId: r.workspaceId,
+        userId: r.createdBy,
       });
       if (res.delivered) {
         await this.deps.store.remove(id);
