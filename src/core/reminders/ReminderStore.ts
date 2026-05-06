@@ -1,4 +1,5 @@
 import { JsonStore } from "../persist/jsonStore.js";
+import { z } from "zod";
 
 // reminder 两种 kind：text 直接发文本；prompt 触发 agent 跑 prompt
 export interface ReminderText {
@@ -30,6 +31,30 @@ interface RemindersFile {
   items: Reminder[];
 }
 
+const ReminderBaseSchema = z.object({
+  id: z.string(),
+  createdAt: z.number(),
+  createdBy: z.number(),
+  chatId: z.string(),
+  at: z.number(),
+  tz: z.string(),
+});
+
+const ReminderTextSchema = ReminderBaseSchema.extend({
+  kind: z.literal("text"),
+  text: z.string(),
+});
+
+const ReminderPromptSchema = ReminderBaseSchema.extend({
+  kind: z.literal("prompt"),
+  prompt: z.string(),
+  workspaceId: z.string(),
+});
+
+const RemindersFileSchema = z.object({
+  items: z.array(z.union([ReminderTextSchema, ReminderPromptSchema])),
+});
+
 /**
  * Reminders 持久化：基于 JsonStore，整文件读写。
  * 内存里保留一份 state 以便 list() 同步返回；写操作每次都 persist 落盘。
@@ -39,7 +64,11 @@ export class ReminderStore {
   private state: RemindersFile = { items: [] };
 
   constructor(filePath: string) {
-    this.store = new JsonStore<RemindersFile>(filePath, { items: [] });
+    this.store = new JsonStore<RemindersFile>(
+      filePath,
+      { items: [] },
+      (raw) => RemindersFileSchema.parse(raw),
+    );
   }
 
   async init(): Promise<void> {

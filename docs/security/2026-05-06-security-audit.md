@@ -1,6 +1,6 @@
 # cursor-claw Security Audit · 2026-05-06
 
-**Status**：Audit complete · T8 处置中（8 Fixed / 1 Accepted-Risk / 5 Open）
+**Status**：Audit complete · T8 处置完成（13 Fixed / 1 Accepted-Risk / 0 Open）
 **Scope**：commit `810a3d9` 公开化时刻基线
 **Spec**：[2026-05-06-security-audit-design.md](../superpowers/specs/2026-05-06-security-audit-design.md)
 **Plan**：[2026-05-06-security-audit.md](../superpowers/plans/2026-05-06-security-audit.md)
@@ -22,12 +22,11 @@
 
 | 状态 | 计数 | Finding |
 |---|---|---|
-| **Fixed** | 8 | F-01 / F-03 / F-05 / F-06 / F-10 / F-11 / F-13 / F-14 |
+| **Fixed** | 13 | F-01 / F-03 / F-04 / F-05 / F-06 / F-07 / F-08 / F-09 / F-10 / F-11 / F-12 / F-13 / F-14 |
 | **Accepted-Risk** | 1 | F-02 |
-| Open | 5 | F-04 / F-07 / F-08 / F-09 / F-12 |
+| Open | 0 | - |
 
-剩余 5 项的处置：
-- **F-04 / F-07 / F-08 / F-09 / F-12**：Low / Info 性质，按需逐项处理或 Won't-Fix
+所有 Open finding 已处置；F-02 按已批准的 Accepted-Risk 保留，等待上游 `@cursor/sdk` / `@connectrpc/connect-node` 升级。
 
 ### Top 3 Priority
 
@@ -44,15 +43,15 @@
 | F-01 | Telegram 文件下载 URL 内含 botToken，错误信息泄露面 | Medium | D1+D4 | **Fixed** | [#4](https://github.com/lilyjem/cursor-claw/pull/4) |
 | F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | D2 | **Accepted-Risk** | - |
 | F-03 | tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越） | Medium | D2 | **Fixed** | [#5](https://github.com/lilyjem/cursor-claw/pull/5) |
-| F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | Open | - |
+| F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | **Fixed** | [#12](https://github.com/lilyjem/cursor-claw/pull/12) |
 | F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | D3 | **Fixed** | [#1](https://github.com/lilyjem/cursor-claw/pull/1) |
 | F-06 | 无单用户速率/flood/资源 cap | Medium | D3 | **Fixed** | [#7](https://github.com/lilyjem/cursor-claw/pull/7) / [#8](https://github.com/lilyjem/cursor-claw/pull/8) / [#9](https://github.com/lilyjem/cursor-claw/pull/9) / [#10](https://github.com/lilyjem/cursor-claw/pull/10) / [#11](https://github.com/lilyjem/cursor-claw/pull/11) |
-| F-07 | `/ws add` 接受任意绝对路径，无路径白名单 | Info | D3 | Open | - |
-| F-08 | 多个 echo 路径未 escape user-controlled 字符串到 HTML | Low | D3 | Open | - |
-| F-09 | 用户消息直接作为 agent prompt，无系统边界标记 | Info | D4 | Open | - |
+| F-07 | `/ws add` 接受任意绝对路径，无路径白名单 | Info | D3 | **Fixed** | [#13](https://github.com/lilyjem/cursor-claw/pull/13) |
+| F-08 | 多个 echo 路径未 escape user-controlled 字符串到 HTML | Low | D3 | **Fixed** | [#14](https://github.com/lilyjem/cursor-claw/pull/14) |
+| F-09 | 用户消息直接作为 agent prompt，无系统边界标记 | Info | D4 | **Fixed** | [#15](https://github.com/lilyjem/cursor-claw/pull/15) |
 | F-10 | Cursor agent 默认拥有完整 tool 权限，无白名单 | Medium | D4 | **Fixed** | [#6](https://github.com/lilyjem/cursor-claw/pull/6) |
 | F-11 | `r.result` 字段被 logger 全文输出（路径泄露） | Low | D4 | **Fixed (顺手)** | [#4](https://github.com/lilyjem/cursor-claw/pull/4) |
-| F-12 | `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验 | Low | D5 | Open | - |
+| F-12 | `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验 | Low | D5 | **Fixed** | [#16](https://github.com/lilyjem/cursor-claw/pull/16) |
 | F-13 | `data/` 目录与文件未显式设置受限权限（默认 0755/0644） | Medium | D6 | **Fixed** | [#3](https://github.com/lilyjem/cursor-claw/pull/3) |
 | F-14 | `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中任意 path | Medium | D6 | **Fixed** | [#2](https://github.com/lilyjem/cursor-claw/pull/2) |
 
@@ -325,7 +324,7 @@ cursor-claw 运行时**不直接调用 tar**（grep 验证：源码无 `require(
 | 领域 | D2 |
 | 位置 | `package.json` scripts；`.github/` 下无 workflow |
 | 状态 | **Fixed** |
-| 修复 PR | [#7](https://github.com/lilyjem/cursor-claw/pull/7) / [#8](https://github.com/lilyjem/cursor-claw/pull/8) / [#9](https://github.com/lilyjem/cursor-claw/pull/9) / [#10](https://github.com/lilyjem/cursor-claw/pull/10) / [#11](https://github.com/lilyjem/cursor-claw/pull/11) |
+| 修复 PR | [#12](https://github.com/lilyjem/cursor-claw/pull/12) |
 
 **复现 / 触发条件**
 
@@ -461,8 +460,8 @@ const dataPromise = (async () => {
 | CWE | CWE-770（Allocation of Resources Without Limits） |
 | 领域 | D3 |
 | 位置 | 整个项目无 rate limit；具体放大点：`commands/handlers/remind.ts`（reminder 无数量上限）、`AgentOrchestrator.ts`（agent 调用无并发 cap）、`bin/cursor-claw.ts:111` 的 `logger.warn` 日志爆炸面 |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#7](https://github.com/lilyjem/cursor-claw/pull/7) / [#8](https://github.com/lilyjem/cursor-claw/pull/8) / [#9](https://github.com/lilyjem/cursor-claw/pull/9) / [#10](https://github.com/lilyjem/cursor-claw/pull/10) / [#11](https://github.com/lilyjem/cursor-claw/pull/11) |
 
 **复现 / 触发条件**
 
@@ -517,8 +516,8 @@ const dataPromise = (async () => {
 | CWE | CWE-22（Path Traversal）/ CWE-732（Incorrect Permission） |
 | 领域 | D3 |
 | 位置 | `src/commands/handlers/ws.ts:52-89` |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#13](https://github.com/lilyjem/cursor-claw/pull/13) |
 
 **复现 / 触发条件**
 
@@ -545,8 +544,8 @@ const dataPromise = (async () => {
 | CWE | CWE-79（Cross-Site Scripting，但 Telegram 客户端不执行 script，只渲染 markup） |
 | 领域 | D3 |
 | 位置 | `src/commands/handlers/ws.ts:49,87,108,116`；`src/commands/handlers/remind.ts:144-150,162` |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#14](https://github.com/lilyjem/cursor-claw/pull/14) |
 
 **复现 / 触发条件**
 
@@ -602,8 +601,8 @@ const dataPromise = (async () => {
 | CWE | CWE-94（Improper Control of Generation of Code）/ CWE-1287（Improper Validation of Specified Type of Input） |
 | 领域 | D4 |
 | 位置 | `src/core/orchestrator/AgentOrchestrator.ts:148`（`entry.agent.send(input.text, ...)`） |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#15](https://github.com/lilyjem/cursor-claw/pull/15) |
 
 **复现 / 触发条件**
 
@@ -780,8 +779,8 @@ PR #4 实施了字符串内容级脱敏的基础设施（`sanitizeForOutput` + p
 | CWE | CWE-502（Deserialization of Untrusted Data） |
 | 领域 | D5 |
 | 位置 | `src/core/persist/jsonStore.ts:27`（`JSON.parse(raw) as T`）+ `src/core/attachments/AttachmentQueue.ts:45`（`JSON.parse(t) as AttachmentEntry`） |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#16](https://github.com/lilyjem/cursor-claw/pull/16) |
 
 **复现 / 触发条件**
 

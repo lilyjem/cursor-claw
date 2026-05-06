@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile, appendFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { logger } from "../../logger.js";
+import { z } from "zod";
 
 export interface AttachmentEntry {
   cwd: string;
@@ -9,6 +10,14 @@ export interface AttachmentEntry {
   caption?: string;
   queuedAt: number;
 }
+
+const AttachmentEntrySchema = z.object({
+  cwd: z.string(),
+  kind: z.union([z.literal("image"), z.literal("file")]),
+  path: z.string(),
+  caption: z.string().optional(),
+  queuedAt: z.number(),
+});
 
 /**
  * 队列文件 (jsonl)：
@@ -46,9 +55,9 @@ export class AttachmentQueue {
       const t = line.trim();
       if (!t) continue;
       try {
-        out.push(JSON.parse(t) as AttachmentEntry);
+        out.push(AttachmentEntrySchema.parse(JSON.parse(t)) as AttachmentEntry);
       } catch {
-        // 损坏行不阻塞整体；记日志便于排查
+        // 损坏行 / shape 不合法都不阻塞整体；记日志便于排查
         logger.warn({ line: t.slice(0, 200) }, "queue 损坏行已跳过");
       }
     }

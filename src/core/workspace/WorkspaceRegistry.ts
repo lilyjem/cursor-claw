@@ -1,4 +1,5 @@
 import { JsonStore } from "../persist/jsonStore.js";
+import { z } from "zod";
 
 // 工作区元数据：name 是 SDK agentId 的"逻辑标签"，path 是实际 cwd。
 export interface Workspace {
@@ -10,6 +11,16 @@ interface RegistryFile {
   active?: string;
   items: Record<string, Workspace>;
 }
+
+const WorkspaceSchema = z.object({
+  name: z.string(),
+  path: z.string(),
+});
+
+const RegistryFileSchema = z.object({
+  active: z.string().optional(),
+  items: z.record(WorkspaceSchema),
+});
 
 export class WorkspaceError extends Error {
   constructor(msg: string) {
@@ -30,7 +41,11 @@ export class WorkspaceRegistry {
   private state: RegistryFile = { items: {} };
 
   constructor(filePath: string) {
-    this.store = new JsonStore<RegistryFile>(filePath, { items: {} });
+    this.store = new JsonStore<RegistryFile>(
+      filePath,
+      { items: {} },
+      (raw) => RegistryFileSchema.parse(raw),
+    );
   }
 
   async init(opts: { autoRegisterCwd: boolean; cwd: string }): Promise<void> {

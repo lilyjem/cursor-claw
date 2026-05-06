@@ -17,6 +17,7 @@ export class JsonStore<T> {
   constructor(
     private readonly filePath: string,
     private readonly defaults: T,
+    private readonly validate?: (raw: unknown) => T,
   ) {}
 
   async readOrInit(): Promise<T> {
@@ -24,7 +25,8 @@ export class JsonStore<T> {
     await this.cleanupTmp();
     try {
       const raw = await readFile(this.filePath, "utf8");
-      this.cache = JSON.parse(raw) as T;
+      const parsed = JSON.parse(raw) as unknown;
+      this.cache = this.validate ? this.validate(parsed) : (parsed as T);
       return this.cache;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {

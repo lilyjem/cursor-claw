@@ -57,6 +57,22 @@ describe("JsonStore", () => {
     expect((await store.read()).x).toBe(11);
   });
 
+  it("F-12: 传入 validator 时，读取非法 JSON shape 会拒绝", async () => {
+    const target = join(dir, "bad.json");
+    await writeFile(target, JSON.stringify({ x: "not-number" }), "utf8");
+    const store = new JsonStore<Foo>(join(dir, "bad.json"), { x: 0 }, (raw) => {
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        typeof (raw as { x?: unknown }).x === "number"
+      ) {
+        return raw as Foo;
+      }
+      throw new Error("invalid Foo");
+    });
+    await expect(store.readOrInit()).rejects.toThrow("invalid Foo");
+  });
+
   // F-13：JsonStore 落盘文件应限制为 0600（仅 owner 可读写）
   // 跨主机的 dataDir 经常含会话历史 / reminder 内容 / 用户标识，
   // 默认 0644 在多用户主机上可被同主机其他用户读取。
