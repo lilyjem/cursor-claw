@@ -34,6 +34,10 @@
 | F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | D2 | Open | - |
 | F-03 | tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越） | Medium | D2 | Open | - |
 | F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | Open | - |
+| F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | D3 | Open | - |
+| F-06 | 无单用户速率/flood/资源 cap | Medium | D3 | Open | - |
+| F-07 | `/ws add` 接受任意绝对路径，无路径白名单 | Info | D3 | Open | - |
+| F-08 | 多个 echo 路径未 escape user-controlled 字符串到 HTML | Low | D3 | Open | - |
 
 ---
 
@@ -296,7 +300,208 @@ cursor-claw 运行时**不直接调用 tar**（grep 验证：源码无 `require(
 
 ## D3 · Telegram 输入与权限
 
-> _T3 任务填写。_
+### 扫描清单与证据
+
+| 扫描项 | 工具 / 命令 | 结果 |
+|---|---|---|
+| `allowedUserIds` 白名单实施 | grep + 读 `TelegramMessenger.ts:95-122` 与 `bin/cursor-claw.ts:110/122` | **双层保护**：messenger 层（每个 grammy `bot.on()` handler）+ 业务层（每个 listener 调 `AccessControl.isAllowed`）；未授权用户消息在 messenger 层即被静默 drop，业务层再次拦截会 `logger.warn`（潜在日志爆炸面，见 F-06） |
+| 命令解析器输入校验 | 读 `commands/parser.ts` | 无 path 拼接、无 shell 调用、返回严格类型 `ParsedText \| ParsedCommand`；输入仅做 trim + split，无注入面 |
+| 命令派发 | 读 `commands/dispatch.ts` | switch-case 严格匹配命令名，未知命令返回错误信息；handler 通过 `CommandContext` 接口注入依赖，便于测试 |
+| `maxFileSizeBytes` 实施 | grep 全 src | **配置项仅在 `config/schema.ts` 出现**，全代码库无任何运行时引用 → **配置承诺没有兑现**（见 F-05） |
+| `parseMode: HTML` 下用户文本 escape 覆盖 | grep `escapeHtml` 全 src | `markdownToHtml.ts`、`status.ts`、`streamRenderer.ts`、`AgentOrchestrator.ts` 已 escape；但 `ws.ts:49/87/108/116`、`remind.ts:144-150/162` 等多处直接拼接 user-controlled 字符串到 HTML 输出（见 F-08） |
+| 速率 / flood / 单用户上限 | grep `rate\|flood\|throttle\|limit` 全 src | **无任何速率限制**；reminder 数量、并发 fetch、agent 调用全无 cap（见 F-06） |
+| `/ws add` 路径校验 | 读 `commands/handlers/ws.ts:52-89` | 仅校验 `isAbsolute(path)` + `stat(path).isDirectory()`，**无任何路径白名单**；信任假设是 owner 自己（见 F-07） |
+
+### F-05 · `maxFileSizeBytes` 配置项无运行时强制点
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **High** |
+| CWE | CWE-770（Allocation of Resources Without Limits）/ CWE-400（Uncontrolled Resource Consumption） |
+| 领域 | D3 |
+| 位置 | `src/config/schema.ts:45-60`（定义） + `src/adapters/telegram/TelegramMessenger.ts:131-137`（应实施而未实施） |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+`config/schema.ts` 定义：
+
+```ts
+attachments: z.object({
+  maxFileSizeBytes: z.number().int().min(1024).default(20 * 1024 * 1024),  // 默认 20 MB
+  ...
+})
+```
+
+但 `grep -rn maxFileSizeBytes src/` 仅返回此一处定义，**全代码库无任何引用使用此值**。图片下载实际代码：
+
+```ts
+const dataPromise = (async () => {
+  const file = await ctx.api.getFile(fileId);  // file.file_size 字段被忽略
+  const url = `https://api.telegram.org/file/bot${this.cfg.botToken}/${file.file_path}`;
+  const res = await fetch(url);                 // 不检查 Content-Length
+  const buf = Buffer.from(await res.arrayBuffer());  // 整文件加载到内存
+  return buf.toString("base64");                // base64 再 +33% 内存
+})();
+```
+
+授权用户（甚至单一恶意 allowed user）可发送大文件让进程 OOM 退出：
+
+- Telegram 平台允许的 photo 上限 50 MB，document 上限 50 MB（云端 bot api，自托管可达 2 GB）
+- 50 MB 文件 → fetch 后 50 MB Buffer → toString("base64") 67 MB string → 总占用 ≥ 117 MB / 单次
+- `bot.on("message:photo")` handler 立刻返回，下载在后台并发跑 → 攻击者快速连发 N 条可累积 N × 117 MB 内存
+
+**影响**
+
+- 进程 OOM 退出，bot 服务中断
+- 配置项给运维 / 用户错误的安全感（"我设置了 maxFileSizeBytes=5MB 啊"）
+- 可被任何已 allowedUserIds 内的用户触发，包括撤销信任后未及时移除的前用户
+
+**修复建议**
+
+在 `TelegramMessenger.ts` 第 131-137 行加 file_size pre-check + stream cap：
+
+```ts
+const dataPromise = (async () => {
+  const file = await ctx.api.getFile(fileId);
+  // 1. Telegram 已知 file_size 时，pre-check
+  if (file.file_size && file.file_size > this.cfg.maxFileSizeBytes) {
+    throw new Error(`file_size ${file.file_size} 超过上限 ${this.cfg.maxFileSizeBytes}`);
+  }
+  const url = `https://api.telegram.org/file/bot${this.cfg.botToken}/${file.file_path}`;
+  const res = await fetch(url);
+  // 2. Content-Length 复核（防 server 谎报）
+  const cl = parseInt(res.headers.get("content-length") ?? "0", 10);
+  if (cl > this.cfg.maxFileSizeBytes) throw new Error(`content-length ${cl} 超过上限`);
+  // 3. 流式读取并累计大小，超过即中断
+  const reader = res.body!.getReader();
+  let total = 0;
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > this.cfg.maxFileSizeBytes) {
+      reader.cancel().catch(() => {});
+      throw new Error(`download size 超过上限 ${this.cfg.maxFileSizeBytes}`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("base64");
+})();
+```
+
+并把 `cfg.attachments.maxFileSizeBytes` 通过 `TelegramMessengerConfig` 注入。补一个测试：mock fetch 返回大流，断言会在 cap 处抛错。
+
+**修复成本**：M（半天，含测试）。
+
+### F-06 · 无单用户速率/flood/资源 cap
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Medium** |
+| CWE | CWE-770（Allocation of Resources Without Limits） |
+| 领域 | D3 |
+| 位置 | 整个项目无 rate limit；具体放大点：`commands/handlers/remind.ts`（reminder 无数量上限）、`AgentOrchestrator.ts`（agent 调用无并发 cap）、`bin/cursor-claw.ts:111` 的 `logger.warn` 日志爆炸面 |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+被列入 `allowedUserIds` 但已撤销信任的用户（或被 social engineering 攻击的合法用户）可：
+
+1. **/remind 滥用**：`for i in {1..10000}; do /remind add prompt 1m <长文本>; done` → ReminderStore 无上限累积，每个 timer 占内存，到点全部触发 agent 调用 → Cursor API quota 耗尽 + agent 排队
+2. **图片洪水**：连续发数百张图，每张图触发 base64 解码 + agent 调用 → CPU/内存 拉爆
+3. **未授权用户日志爆炸**：未在白名单的用户发消息时，`bin/cursor-claw.ts:111` 会 `logger.warn`；攻击者用机器人持续发消息让 cursor-claw 日志暴涨（虽然 message 在 messenger 层会被先 drop，未授权情况下 listener 不会触发，所以这条仅在配置错误时成立 —— 仔细看：messenger 层先 drop，业务层 access 检查只对授权后再次防护，所以未授权用户实际不会触发 warn ✓ 此点为 false alarm）
+
+**影响**
+
+* 服务可用性：DoS 风险
+* 经济：Cursor API quota 烧光 / Telegram bot rate limit 触顶
+* 主机资源：内存/CPU 拉爆
+
+**修复建议**
+
+分层修：
+
+1. **每用户每秒消息上限**（grammy 提供 `@grammyjs/ratelimiter` 或自实现 token bucket）
+2. **reminder 总数上限**（`config.reminders.maxPerUser`，默认 50 / 100）；超过即返回错误
+3. **并发 agent 调用上限**（每用户 1 个，正在运行时新消息排队或拒绝）
+4. **图片下载并发上限**（如 5 张，超过即排队）
+
+具体代码示例略，建议作为后续 epic（与 backend 设计变更耦合较紧）。
+
+**修复成本**：L（多天）。
+
+### F-07 · `/ws add` 接受任意绝对路径，无路径白名单
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Info**（设计上的信任假设；威胁模型 §5 已声明） |
+| CWE | CWE-22（Path Traversal）/ CWE-732（Incorrect Permission） |
+| 领域 | D3 |
+| 位置 | `src/commands/handlers/ws.ts:52-89` |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+授权用户发 `/ws add evil /etc` → 仅校验 `isAbsolute()` + `stat().isDirectory()`，注册成功；之后 `/ws use evil` 把 cursor agent 切到 `/etc`；agent 工具能读 `/etc/passwd` 等。
+
+**影响**
+
+仅在攻击者已经被加入 `allowedUserIds` 时成立。撤销信任的前用户在 owner 把他从白名单移除前可滥用此 vector 读 host 任意目录。
+
+**修复建议**（按需）
+
+* 加一个 `paths.workspaceWhitelist` 配置项（默认 owner 的项目根目录们），`/ws add` 校验 path 必须在 whitelist 内
+* 或加 `paths.workspaceBlacklist`（默认 `/etc`、`/var`、`/Users/*/.ssh`、`~` 等敏感目录）
+
+**修复成本**：S（< 30 分钟，加一行 startsWith 校验 + 配置项）。
+
+**注：** 这条更像是设计 hardening，而非 bug。可作为 Wont-Fix 关闭，但应在文档中明确"`/ws add` 等同于 host 文件系统 root grant"。
+
+### F-08 · 多个 echo 路径未 escape user-controlled 字符串到 HTML
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Low**（仅显示问题，无 RCE / 数据泄露） |
+| CWE | CWE-79（Cross-Site Scripting，但 Telegram 客户端不执行 script，只渲染 markup） |
+| 领域 | D3 |
+| 位置 | `src/commands/handlers/ws.ts:49,87,108,116`；`src/commands/handlers/remind.ts:144-150,162` |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+例如：
+
+```
+> /ws add my<b>cool</b>ws /Users/me/project
+```
+
+执行后，bot 回复：
+
+```
+已添加工作区：my<b>cool</b>ws    ← Telegram 渲染为 my**cool**ws
+```
+
+类似地，`/remind add text 1m <i>这是斜体</i>` 在 `/remind list` 时会被渲染。
+
+**影响**
+
+* 仅显示混乱（不是注入到其他 server）
+* 攻击者可伪造看起来"权威"的消息（如 `<b>系统通知</b>`），但 bot 显示的发送者仍是 bot 自己，欺骗性有限
+* 不构成 RCE 或数据泄露
+
+**修复建议**
+
+统一在 `IMessenger.sendText` 实现层自动 escape，或在每个 user-controlled echo 处显式调 `escapeHtml`。推荐前者（fail-safe by default），并提供 `sendRawHtml` API 给确实需要 HTML 的内部代码（如 status / orchestrator 的格式化输出）。
+
+**修复成本**：M（半天，需要重构 messenger 接口契约 + 全 sendText 调用点 review）。
+
+
 
 ---
 
