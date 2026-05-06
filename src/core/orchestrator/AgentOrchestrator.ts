@@ -63,23 +63,60 @@ export class AgentOrchestrator {
     await this.runInternal(input);
   }
 
-  // 共享路径：text-only / images 两种入口的实际工作流。
+  /**
+   * M2：触发一条 reminder。
+   * - kind='text' → 直接 sendText；不会 busy
+   * - kind='prompt' → 走 runInternal；force 永远 false；返回 busy 信号给 scheduler
+   *
+   * scheduler 拿到 busy=true 后会重排到 +60s（最多一次），第二次仍 busy 则退化为
+   * sendText 通知。这里只关心 delivered/busy 二态，重排策略全在 scheduler 侧。
+   *
+   * 注：kind='prompt' 时 workspaceId 字段当前不切换 active workspace，仅作为
+   * 上下文记录；真正的 cross-workspace reminder 留到 M3+。
+   */
+  async runReminder(input: {
+    chatId: string;
+    kind: "text" | "prompt";
+    text?: string;
+    prompt?: string;
+    workspaceId?: string;
+  }): Promise<{ delivered: boolean; busy?: boolean }> {
+    if (input.kind === "text") {
+      const text = input.text ?? "";
+      await this.deps.messenger.sendText(input.chatId, `⏰ ${text}`);
+      return { delivered: true };
+    }
+    // prompt 路径：force 永远 false；用 skipBusyMsg 抑制默认的"agent 在忙"用户提示，
+    // 让 scheduler 自己决定通知方式（重排 vs 退化）
+    const ok = await this.runInternal({
+      chatId: input.chatId,
+      text: input.prompt ?? "",
+      force: false,
+      skipBusyMsg: true,
+    });
+    return { delivered: ok, busy: !ok };
+  }
+
+  // 共享路径：text-only / images / reminder 三种入口的实际工作流。
   // 抽成私有方法是为了：
   // 1. 不重复 ensureAgent / busyPolicy / streamRenderer 的样板代码
   // 2. 让 images 透传只是 send 的额外字段，单点变更
+  // 返回值：true=接受执行（已正常 send / 正在 stream），false=被拒（无 ws / busy reject）
   private async runInternal(input: {
     chatId: string;
     text: string;
     force: boolean;
     images?: Array<{ data: string; mimeType: string }>;
-  }): Promise<void> {
+    // M2：reminder 走 prompt 路径时让调用方自行处理 busy 通知
+    skipBusyMsg?: boolean;
+  }): Promise<boolean> {
     const ws = this.deps.registry.getActive();
     if (!ws) {
       await this.deps.messenger.sendText(
         input.chatId,
         "没有活跃的工作区，请先 /ws add 一个。",
       );
-      return;
+      return false;
     }
     const wsId = ws.name;
 
@@ -90,12 +127,14 @@ export class AgentOrchestrator {
     });
 
     if (action === "reject") {
-      await this.deps.messenger.sendText(
-        input.chatId,
-        `Agent 正在工作区 <b>${ws.name}</b> 上工作中；请 /cancel 后重试，或在消息前加 ! 强制打断。`,
-        { parseMode: "HTML" },
-      );
-      return;
+      if (!input.skipBusyMsg) {
+        await this.deps.messenger.sendText(
+          input.chatId,
+          `Agent 正在工作区 <b>${ws.name}</b> 上工作中；请 /cancel 后重试，或在消息前加 ! 强制打断。`,
+          { parseMode: "HTML" },
+        );
+      }
+      return false;
     }
 
     const renderer = new StreamRenderer(
@@ -116,7 +155,8 @@ export class AgentOrchestrator {
       logger.error({ err: msg }, "agent.send failed");
       // 错误文本可能含 < > 等会破坏 Telegram HTML，先 escape 再发；并裁掉过长内容
       await renderer.finalize(`\n⚠️ Error: ${escapeHtml(msg.slice(0, 400))}`);
-      return;
+      // 视为已"接受过"（agent 是被调到了，只是失败），返回 true 让 scheduler 不重排
+      return true;
     }
     entry.activeRun = run;
 
@@ -173,6 +213,8 @@ export class AgentOrchestrator {
         );
       }
     }
+
+    return true;
   }
 
   async cancel(workspaceId: string): Promise<void> {

@@ -131,6 +131,34 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
     await orch2.dispose();
   });
 
+  describe("runReminder", () => {
+    it("kind=text 直接 sendText", async () => {
+      const r = await orch.runReminder({
+        chatId: "1",
+        kind: "text",
+        text: "起床啦",
+      });
+      expect(r.delivered).toBe(true);
+      expect(
+        messenger.sentTexts.some((t) => t.text.includes("起床啦")),
+      ).toBe(true);
+    });
+
+    it("kind=prompt 走 send", async () => {
+      const p = orch.runReminder({
+        chatId: "1",
+        kind: "prompt",
+        prompt: "查 BTC 价格",
+      });
+      const agent = await waitFor(() => runtime.agents[0]);
+      const run = await waitFor(() => agent.currentRun);
+      run.setScript([{ type: "assistant", text: "查到了" }]);
+      const r = await p;
+      expect(r.delivered).toBe(true);
+      expect(agent.lastSend?.text).toBe("查 BTC 价格");
+    });
+  });
+
   it("无活跃 workspace 时回提示且不调 send", async () => {
     // 用一个空 registry 的 orchestrator 单独跑此用例
     const empty = new WorkspaceRegistry(join(dataDir, "empty.json"));
