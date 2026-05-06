@@ -98,6 +98,9 @@ async function main(): Promise<void> {
     streamOptions: { throttleMs: 800, maxLen: 3000 },
     defaultModel: cfg.cursor.defaultModel,
     attachmentDispatcher: dispatcher,
+    // F-10：把 sandboxOptions 沿 orchestrator → runtime → SDK 一路透传。
+    // schema 默认 enabled=true；用户可在 config.json 显式 false 关闭。
+    sandboxOptions: cfg.cursor.sandboxOptions,
   });
 
   const scheduler = new ReminderScheduler({

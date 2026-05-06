@@ -13,12 +13,18 @@ export interface CreateAgentOptions {
   model?: { id: string; params?: Array<{ id: string; value: string }> };
   settingSources?: ("project" | "user" | "team" | "mdm" | "plugins" | "all")[];
   mcpServers?: Record<string, unknown>;
+  // F-10：透传到 SDK 的 local.sandboxOptions。enabled=true 启用 Cursor SDK 自带沙箱，
+  // 沙箱具体规则由 ~/.cursor/sandbox.json 或 <workspace>/.cursor/sandbox.json 配置。
+  sandboxOptions?: { enabled: boolean };
 }
 
 export interface ResumeAgentOptions {
   cwd: string;
   model?: { id: string; params?: Array<{ id: string; value: string }> };
   settingSources?: ("project" | "user" | "team" | "mdm" | "plugins" | "all")[];
+  // F-10：与 CreateAgentOptions.sandboxOptions 对应；resume 路径同样必须传，
+  // 否则历史 session 重连后会重新跑成无沙箱状态，等于完全绕过加固。
+  sandboxOptions?: { enabled: boolean };
 }
 
 export interface RuntimeAgent {
