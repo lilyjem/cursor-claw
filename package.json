@@ -70,5 +70,14 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
+  },
+  "//security_overrides": "F-03 修复：把 install-time 路径穿越风险的传递依赖链全部升级到当前 advisory 已修复版本（tar 7.5.11+ / node-gyp 10.3.1+ / cacache 18 / make-fetch-happen 13 / http-proxy-agent 7 / @tootallnate/once 2）。注意：undici 故意不在此列，F-02 已标 Accepted-Risk，等待 @cursor/sdk → @connectrpc/connect-node 上游升级后再处理。",
+  "overrides": {
+    "tar": "^7.5.11",
+    "cacache": "^18.0.4",
+    "make-fetch-happen": "^13.0.1",
+    "node-gyp": "^10.3.1",
+    "http-proxy-agent": "^7.0.2",
+    "@tootallnate/once": "npm:@tootallnate/once@2.0.0"
   }
 }
