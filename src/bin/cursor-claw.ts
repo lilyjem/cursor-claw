@@ -21,7 +21,8 @@ import { parseForcePrefix } from "../core/orchestrator/busyPolicy.js";
 async function main(): Promise<void> {
   const cfg = await loadConfig({});
   const dataDir = cfg.paths.dataDir;
-  await mkdir(dataDir, { recursive: true });
+  // F-13：dataDir 含 session/reminder/附件等隐私数据，明确限定 0o700
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
 
   const registry = new WorkspaceRegistry(join(dataDir, "workspaces.json"));
   await registry.init({
@@ -38,9 +39,14 @@ async function main(): Promise<void> {
   const writeClawMarker = async (wsPath: string): Promise<void> => {
     try {
       const markerDir = join(wsPath, ".claw");
-      await mkdir(markerDir, { recursive: true });
+      // F-13：marker 内容是 dataDir 绝对路径，间接暴露用户名/项目布局；
+      // 限定 0o700/0o600。
+      await mkdir(markerDir, { recursive: true, mode: 0o700 });
       const abs = resolve(dataDir);
-      await writeFile(join(markerDir, "data-dir.txt"), abs, "utf8");
+      await writeFile(join(markerDir, "data-dir.txt"), abs, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
     } catch (e) {
       logger.warn(
         { err: (e as Error).message, wsPath },

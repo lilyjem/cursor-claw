@@ -55,9 +55,14 @@ export class JsonStore<T> {
 
   // 真正落盘：先写到 .tmp 再 rename，rename 在同一文件系统下是原子的
   private async flush(value: T): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
+    // F-13：dataDir 含 session/reminder/userId 等隐私数据，目录限定 0700、文件 0600，
+    // 避免多用户主机下被同主机其他账户读取。
+    await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
     const tmp = `${this.filePath}.tmp`;
-    await writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
+    await writeFile(tmp, JSON.stringify(value, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     await rename(tmp, this.filePath);
   }
 
