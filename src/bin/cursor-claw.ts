@@ -33,6 +33,8 @@ async function main(): Promise<void> {
     botToken: cfg.telegram.botToken,
     parseMode: cfg.telegram.parseMode,
     allowedUserIds: cfg.telegram.allowedUserIds,
+    // M2: 媒体组聚合 debounce 时间（控制 album 拼合的等待窗口）
+    mediaGroupDebounceMs: cfg.images.mediaGroupDebounceMs,
   });
   const runtime = new CursorSdkRuntime(cfg.cursor.apiKey);
   const orchestrator = new AgentOrchestrator({
@@ -58,12 +60,20 @@ async function main(): Promise<void> {
     void handleText(msg.chatId, msg.text);
   });
 
-  messenger.on("image", (msg) => {
-    if (!access.isAllowed(msg.userId)) return;
-    void messenger.sendText(
-      msg.chatId,
-      "（M1 暂不处理图片输入；M2 会接入。）",
+  // M2：旧 image 事件保留 listener 注册（向后兼容）但不再做事，
+  // 真正接入 agent 的路径走聚合后的 imageGroup 事件
+  messenger.on("image", () => {});
+
+  messenger.on("imageGroup", (msg) => {
+    if (!access.isAllowed(msg.userId)) {
+      logger.warn({ userId: msg.userId }, "userId 不在 allowedUserIds，丢弃");
+      return;
+    }
+    logger.info(
+      { userId: msg.userId, n: msg.images.length, hasCaption: !!msg.caption },
+      "incoming imageGroup",
     );
+    void handleImageGroup(msg.chatId, msg.images, msg.caption);
   });
 
   await messenger.start();
@@ -86,6 +96,51 @@ async function main(): Promise<void> {
   };
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
+
+  // M2：把 imageGroup 落到 orchestrator.runPromptWithImages
+  // - 超过 cfg.images.maxImagesPerPrompt 时截断并提示用户
+  // - caption 为空时按张数选 single/multi 默认 prompt
+  // - 与 handleText 一致：以 ! 开头解为 force=true
+  async function handleImageGroup(
+    chatId: string,
+    images: Array<{ data: string; mimeType: string }>,
+    caption?: string,
+  ): Promise<void> {
+    try {
+      const cap = cfg.images.maxImagesPerPrompt;
+      let used = images;
+      if (images.length > cap) {
+        used = images.slice(0, cap);
+        await messenger.sendText(
+          chatId,
+          `图片超过 ${cap} 张，仅取前 ${cap} 张。`,
+        );
+      }
+      const text =
+        caption ??
+        (used.length > 1
+          ? cfg.images.defaultPromptMulti
+          : cfg.images.defaultPromptSingle);
+      const { force, text: clean } = parseForcePrefix(text);
+      await orchestrator.runPromptWithImages({
+        chatId,
+        text: clean,
+        images: used,
+        force,
+      });
+    } catch (e) {
+      logger.error({ err: (e as Error).message }, "handleImageGroup 顶层异常");
+      try {
+        await messenger.sendText(
+          chatId,
+          `处理图片失败：${(e as Error).message}`.slice(0, 800),
+          { parseMode: "plain" },
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   async function handleText(chatId: string, text: string): Promise<void> {
     // 顶层 try/catch：渲染失败、Telegram 400/429 等绝不能让整个进程崩
