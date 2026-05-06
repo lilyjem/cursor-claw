@@ -1,6 +1,9 @@
 import type { IMessenger } from "../../core/messenger/IMessenger.js";
 import type { WorkspaceRegistry } from "../../core/workspace/WorkspaceRegistry.js";
 import type { ReminderScheduler } from "../../core/reminders/ReminderScheduler.js";
+import type { ReminderQuota } from "../../core/reminders/ReminderQuota.js";
+import { ReminderQuotaExceededError } from "../../core/reminders/errors.js";
+import { logger } from "../../logger.js";
 import {
   newReminderId,
   type Reminder,
@@ -16,6 +19,7 @@ export interface RemindContext {
   now: () => number;
   tz: string;
   maxAheadDays: number;
+  reminderQuota: ReminderQuota;
 }
 
 const USAGE = `用法：
@@ -124,7 +128,23 @@ async function handleAdd(
       workspaceId: ws.name,
     };
   }
-  await ctx.scheduler.add(item);
+  try {
+    await ctx.reminderQuota.checkAndAdd(item);
+  } catch (e) {
+    if (e instanceof ReminderQuotaExceededError) {
+      logger.warn(
+        { userId: ctx.userId, used: e.used, cap: e.cap },
+        "reminder quota exceeded",
+      );
+      await ctx.messenger.sendText(
+        ctx.chatId,
+        `Reminder 已达上限（${e.used}/${e.cap}），请先 /remind del 释放再添加。`,
+        { parseMode: "plain" },
+      );
+      return;
+    }
+    throw e;
+  }
   await ctx.messenger.sendText(
     ctx.chatId,
     `✅ ${id}：将于 ${new Date(parsed.at).toISOString()} 触发`,

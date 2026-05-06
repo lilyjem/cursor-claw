@@ -4,6 +4,7 @@ import {
   handleRemind,
   type RemindContext,
 } from "../../src/commands/handlers/remind.js";
+import { ReminderQuota } from "../../src/core/reminders/ReminderQuota.js";
 import { StubMessenger } from "../helpers/StubMessenger.js";
 
 describe("/remind", () => {
@@ -25,6 +26,7 @@ describe("/remind", () => {
       userId: 100,
       messenger,
       scheduler,
+      reminderQuota: new ReminderQuota(scheduler, { maxPerUser: 100 }),
       registry: {
         getActive: () => ({ name: "default", path: "/w" }),
       } as unknown as RemindContext["registry"],

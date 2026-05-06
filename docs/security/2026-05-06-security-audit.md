@@ -1,6 +1,6 @@
 # cursor-claw Security Audit · 2026-05-06
 
-**Status**：Audit complete · 14 个 finding 已识别，等待逐项处置决策（T8）
+**Status**：Audit complete · T8 处置中（8 Fixed / 1 Accepted-Risk / 5 Open）
 **Scope**：commit `810a3d9` 公开化时刻基线
 **Spec**：[2026-05-06-security-audit-design.md](../superpowers/specs/2026-05-06-security-audit-design.md)
 **Plan**：[2026-05-06-security-audit.md](../superpowers/plans/2026-05-06-security-audit.md)
@@ -22,12 +22,11 @@
 
 | 状态 | 计数 | Finding |
 |---|---|---|
-| **Fixed** | 7 | F-01 / F-03 / F-05 / F-10 / F-11 / F-13 / F-14 |
+| **Fixed** | 8 | F-01 / F-03 / F-05 / F-06 / F-10 / F-11 / F-13 / F-14 |
 | **Accepted-Risk** | 1 | F-02 |
-| Open | 6 | F-04 / F-06 / F-07 / F-08 / F-09 / F-12 |
+| Open | 5 | F-04 / F-07 / F-08 / F-09 / F-12 |
 
-剩余 6 项的处置：
-- **F-06**：rate limiting，cost L，作为 backlog epic 跟踪
+剩余 5 项的处置：
 - **F-04 / F-07 / F-08 / F-09 / F-12**：Low / Info 性质，按需逐项处理或 Won't-Fix
 
 ### Top 3 Priority
@@ -47,7 +46,7 @@
 | F-03 | tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越） | Medium | D2 | **Fixed** | [#5](https://github.com/lilyjem/cursor-claw/pull/5) |
 | F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | Open | - |
 | F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | D3 | **Fixed** | [#1](https://github.com/lilyjem/cursor-claw/pull/1) |
-| F-06 | 无单用户速率/flood/资源 cap | Medium | D3 | Open | - |
+| F-06 | 无单用户速率/flood/资源 cap | Medium | D3 | **Fixed** | [#7](https://github.com/lilyjem/cursor-claw/pull/7) / [#8](https://github.com/lilyjem/cursor-claw/pull/8) / [#9](https://github.com/lilyjem/cursor-claw/pull/9) / [#10](https://github.com/lilyjem/cursor-claw/pull/10) / [#11](https://github.com/lilyjem/cursor-claw/pull/11) |
 | F-07 | `/ws add` 接受任意绝对路径，无路径白名单 | Info | D3 | Open | - |
 | F-08 | 多个 echo 路径未 escape user-controlled 字符串到 HTML | Low | D3 | Open | - |
 | F-09 | 用户消息直接作为 agent prompt，无系统边界标记 | Info | D4 | Open | - |
@@ -64,7 +63,7 @@
 - 严重级分布表（0 Critical / 2 High / 6 Medium / 4 Low / 2 Info / 总计 14）与 Findings ToC 行数一致 ✓
 - 每条 finding 均含至少 4 个核心字段（严重级 / 位置 / 影响 / 修复建议）✓
 - Top 3 Priority 在 Findings ToC 中均存在且严重级匹配 ✓
-- 每条 finding 状态当前均为 **Open**；处置决策见 T8 阶段每个 fix PR / Accepted-Risk / Wont-Fix 标注
+- Finding 状态已按 T8 处置决策逐项标注（Fixed / Accepted-Risk / Open）；后续 Low / Info 项按需继续处理。
 
 ---
 
@@ -325,8 +324,8 @@ cursor-claw 运行时**不直接调用 tar**（grep 验证：源码无 `require(
 | CWE | CWE-1104（Use of Unmaintained Third Party Components） |
 | 领域 | D2 |
 | 位置 | `package.json` scripts；`.github/` 下无 workflow |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#7](https://github.com/lilyjem/cursor-claw/pull/7) / [#8](https://github.com/lilyjem/cursor-claw/pull/8) / [#9](https://github.com/lilyjem/cursor-claw/pull/9) / [#10](https://github.com/lilyjem/cursor-claw/pull/10) / [#11](https://github.com/lilyjem/cursor-claw/pull/11) |
 
 **复现 / 触发条件**
 
@@ -488,7 +487,25 @@ const dataPromise = (async () => {
 3. **并发 agent 调用上限**（每用户 1 个，正在运行时新消息排队或拒绝）
 4. **图片下载并发上限**（如 5 张，超过即排队）
 
-具体代码示例略，建议作为后续 epic（与 backend 设计变更耦合较紧）。
+**修复实施**
+
+按 `docs/superpowers/specs/2026-05-06-f06-rate-limit-design.md` 与 `docs/superpowers/plans/2026-05-06-f06-rate-limit.md` 拆成 5 个小 PR 完成：
+
+1. **TokenBucket 纯算法**（PR #7）：新增 `src/core/rateLimit/TokenBucket.ts`，用 lazy refill 避免 timer 副作用，提供 `take()` / `inspect()` / `timeUntilNext()`。
+2. **RateLimiter 容器**（PR #8）：新增 `src/core/rateLimit/RateLimiter.ts`，按 `(userId, key)` 管理独立 bucket，并用朴素 LRU 清 idle bucket。
+3. **messenger 入口限速**（PR #9）：`onText` / `onImageGroup` 共享 `msg` bucket（默认 capacity 4、refill 2 msg/s），超限返回 `请求过于频繁，请 X 秒后重试。` 并 `logger.warn`。
+4. **agent.create 限速**（PR #10）：`userId` 沿 `runPrompt` / `runPromptWithImages` / `runReminder` 透传到 `ensureAgent`，仅 cached miss 消耗 `agentCreate` bucket（默认 capacity 10、refill 10/min），cached 复用不计入限速。
+5. **ReminderQuota 数量上限**（PR #11）：新增 `src/core/reminders/ReminderQuota.ts`，`/remind add` 写入前按 `createdBy` 计数，默认 100/user；超限返回 `Reminder 已达上限（used/cap），请先 /remind del 释放再添加。`
+
+**验证**
+
+- `tests/unit/tokenBucket.test.ts`：5/5
+- `tests/unit/rateLimiter.test.ts`：5/5
+- `tests/unit/reminderQuota.test.ts`：3/3
+- `tests/integration/messageRateLimit.test.ts`：2/2
+- `tests/integration/agentCreateRateLimit.test.ts`：2/2
+- `tests/integration/reminderQuotaCli.test.ts`：1/1
+- 全量：`33` test files / `185` tests passed
 
 **修复成本**：L（多天）。
 
