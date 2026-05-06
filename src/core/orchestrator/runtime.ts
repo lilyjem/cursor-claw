@@ -23,7 +23,14 @@ export interface ResumeAgentOptions {
 
 export interface RuntimeAgent {
   agentId: string;
-  send(text: string, opts?: { force?: boolean }): Promise<RuntimeRun>;
+  // M2：可选 images 直接透传给 SDK 的 send（用于"图片+文字"类多模态 prompt）
+  send(
+    text: string,
+    opts?: {
+      force?: boolean;
+      images?: Array<{ data: string; mimeType: string }>;
+    },
+  ): Promise<RuntimeRun>;
   dispose(): Promise<void>;
 }
 

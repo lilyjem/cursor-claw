@@ -64,9 +64,21 @@ class SdkAgentWrapper implements RuntimeAgent {
     this.agentId = inner.agentId;
   }
 
-  async send(text: string, opts?: { force?: boolean }): Promise<RuntimeRun> {
+  async send(
+    text: string,
+    opts?: {
+      force?: boolean;
+      images?: Array<{ data: string; mimeType: string }>;
+    },
+  ): Promise<RuntimeRun> {
+    // M2：SDK 的 send(message, options) 中 images 属于 message（SDKUserMessage），
+    // 不属于 SendOptions。所以有 images 时把第一个参数升级为对象形式。
+    const message =
+      opts?.images && opts.images.length > 0
+        ? { text, images: opts.images }
+        : text;
     const run = await this.inner.send(
-      text,
+      message,
       opts?.force ? { local: { force: true } } : undefined,
     );
     return new SdkRunWrapper(run);

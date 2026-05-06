@@ -46,6 +46,29 @@ export class AgentOrchestrator {
     text: string;
     force: boolean;
   }): Promise<void> {
+    await this.runInternal(input);
+  }
+
+  // M2：与 runPrompt 同路径，但给 SDK.send 多带一个 images 字段
+  async runPromptWithImages(input: {
+    chatId: string;
+    text: string;
+    force: boolean;
+    images: Array<{ data: string; mimeType: string }>;
+  }): Promise<void> {
+    await this.runInternal(input);
+  }
+
+  // 共享路径：text-only / images 两种入口的实际工作流。
+  // 抽成私有方法是为了：
+  // 1. 不重复 ensureAgent / busyPolicy / streamRenderer 的样板代码
+  // 2. 让 images 透传只是 send 的额外字段，单点变更
+  private async runInternal(input: {
+    chatId: string;
+    text: string;
+    force: boolean;
+    images?: Array<{ data: string; mimeType: string }>;
+  }): Promise<void> {
     const ws = this.deps.registry.getActive();
     if (!ws) {
       await this.deps.messenger.sendText(
@@ -82,6 +105,7 @@ export class AgentOrchestrator {
     try {
       run = await entry.agent.send(input.text, {
         force: action === "force-replace",
+        images: input.images,
       });
     } catch (e) {
       const msg = (e as Error).message;

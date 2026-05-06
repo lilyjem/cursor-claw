@@ -27,11 +27,24 @@ export class StubAgentRuntime implements IAgentRuntime {
 
 export class StubAgent implements RuntimeAgent {
   public sentTexts: string[] = [];
+  // M2：记录最近一次 send 的入参，供测试断言（force / images 透传）
+  public lastSend?: {
+    text: string;
+    force?: boolean;
+    images?: Array<{ data: string; mimeType: string }>;
+  };
   public currentRun?: StubRun;
   constructor(public agentId: string) {}
 
-  async send(text: string, opts?: { force?: boolean }): Promise<RuntimeRun> {
+  async send(
+    text: string,
+    opts?: {
+      force?: boolean;
+      images?: Array<{ data: string; mimeType: string }>;
+    },
+  ): Promise<RuntimeRun> {
     this.sentTexts.push(text);
+    this.lastSend = { text, force: opts?.force, images: opts?.images };
     const run = new StubRun(text, opts?.force ?? false);
     this.currentRun = run;
     return run;
