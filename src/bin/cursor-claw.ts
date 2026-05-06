@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import { loadConfig } from "../config/loadConfig.js";
 import { logger } from "../logger.js";
 import { TelegramMessenger } from "../adapters/telegram/TelegramMessenger.js";
@@ -9,11 +9,15 @@ import { SessionStore } from "../core/session/SessionStore.js";
 import { AccessControl } from "../core/access/AccessControl.js";
 import { AgentOrchestrator } from "../core/orchestrator/AgentOrchestrator.js";
 import { CursorSdkRuntime } from "../core/orchestrator/cursorSdkRuntime.js";
+import { AttachmentQueue } from "../core/attachments/AttachmentQueue.js";
+import { AttachmentDispatcher } from "../core/attachments/AttachmentDispatcher.js";
+import { ReminderStore } from "../core/reminders/ReminderStore.js";
+import { ReminderScheduler } from "../core/reminders/ReminderScheduler.js";
 import { parseCommand } from "../commands/parser.js";
 import { dispatchCommand } from "../commands/dispatch.js";
 import { parseForcePrefix } from "../core/orchestrator/busyPolicy.js";
 
-// cursor-claw M1 主入口：加载 config → 装配单进程的所有依赖 → 启动 Telegram long-polling
+// cursor-claw 主入口（M1 + M2）：加载 config → 装配单进程依赖 → 启 long-polling
 async function main(): Promise<void> {
   const cfg = await loadConfig({});
   const dataDir = cfg.paths.dataDir;
@@ -28,6 +32,23 @@ async function main(): Promise<void> {
   const session = new SessionStore(join(dataDir, "sessions.json"));
   await session.init();
 
+  // M2：把 dataDir 绝对路径写到 active workspace 根的 .claw/data-dir.txt
+  // 这样 attach CLI 子进程在 agent 的 cwd 下能找到主进程的 dataDir。
+  // 失败不阻塞启动（仅日志告警）。
+  const writeClawMarker = async (wsPath: string): Promise<void> => {
+    try {
+      const markerDir = join(wsPath, ".claw");
+      await mkdir(markerDir, { recursive: true });
+      const abs = resolve(dataDir);
+      await writeFile(join(markerDir, "data-dir.txt"), abs, "utf8");
+    } catch (e) {
+      logger.warn(
+        { err: (e as Error).message, wsPath },
+        ".claw/data-dir.txt 写入失败",
+      );
+    }
+  };
+
   const access = new AccessControl(cfg.telegram.allowedUserIds);
   const messenger = new TelegramMessenger({
     botToken: cfg.telegram.botToken,
@@ -37,6 +58,22 @@ async function main(): Promise<void> {
     mediaGroupDebounceMs: cfg.images.mediaGroupDebounceMs,
   });
   const runtime = new CursorSdkRuntime(cfg.cursor.apiKey);
+
+  // M2: 出站附件 queue + dispatcher
+  const queue = new AttachmentQueue(
+    join(dataDir, "attachments", "queue.jsonl"),
+  );
+  const dispatcher = new AttachmentDispatcher({
+    queue,
+    messenger,
+    maxRetries: cfg.attachments.maxRetries,
+    maxPerFlush: cfg.attachments.maxAttachmentsPerFlush,
+  });
+
+  // M2: reminders store + scheduler
+  const reminderStore = new ReminderStore(join(dataDir, "reminders.json"));
+  await reminderStore.init();
+
   const orchestrator = new AgentOrchestrator({
     messenger,
     runtime,
@@ -45,7 +82,21 @@ async function main(): Promise<void> {
     // 真实 Telegram 比单测要更慢节流；800ms 是 RPS 限制内的稳健值
     streamOptions: { throttleMs: 800, maxLen: 3500 },
     defaultModel: cfg.cursor.defaultModel,
+    attachmentDispatcher: dispatcher,
   });
+
+  const scheduler = new ReminderScheduler({
+    store: reminderStore,
+    runReminder: (input) => orchestrator.runReminder(input),
+    sendText: async (chatId, text) => {
+      await messenger.sendText(chatId, text);
+    },
+  });
+  await scheduler.start();
+
+  // 写 .claw 标记（在 messenger.start() 之前；写不成不阻塞）
+  const activeWs = registry.getActive();
+  if (activeWs) await writeClawMarker(activeWs.path);
 
   messenger.on("text", (msg) => {
     // 不论是否被白名单接受都先记一行 trace，方便用户首次配置时排查
@@ -57,7 +108,7 @@ async function main(): Promise<void> {
       logger.warn({ userId: msg.userId }, "userId 不在 allowedUserIds，丢弃");
       return;
     }
-    void handleText(msg.chatId, msg.text);
+    void handleText(msg.chatId, msg.text, msg.userId);
   });
 
   // M2：旧 image 事件保留 listener 注册（向后兼容）但不再做事，
@@ -79,13 +130,19 @@ async function main(): Promise<void> {
   await messenger.start();
   logger.info("cursor-claw started");
 
-  // SIGINT/SIGTERM 平稳退出：先停 long-polling 不再收新消息，再 dispose orchestrator 取消所有 run
+  // SIGINT/SIGTERM 平稳退出：先停 long-polling，再依次 dispose scheduler / orchestrator
   const shutdown = async (): Promise<void> => {
     logger.info("shutting down...");
     try {
       await messenger.stop();
     } catch (e) {
       logger.error({ err: (e as Error).message }, "messenger stop");
+    }
+    try {
+      // M2: scheduler 先 dispose，避免还有 timer 在跑时 orchestrator 已 disposed
+      scheduler.dispose();
+    } catch (e) {
+      logger.error({ err: (e as Error).message }, "scheduler dispose");
     }
     try {
       await orchestrator.dispose();
@@ -142,17 +199,27 @@ async function main(): Promise<void> {
     }
   }
 
-  async function handleText(chatId: string, text: string): Promise<void> {
+  async function handleText(
+    chatId: string,
+    text: string,
+    userId: number,
+  ): Promise<void> {
     // 顶层 try/catch：渲染失败、Telegram 400/429 等绝不能让整个进程崩
     try {
       const parsed = parseCommand(text);
       if (parsed.type === "command") {
         await dispatchCommand(parsed, {
           chatId,
+          userId,
           messenger,
           registry,
           session,
           orchestrator,
+          scheduler,
+          reminderConfig: {
+            tz: cfg.reminders.timezone,
+            maxAheadDays: cfg.reminders.maxAheadDays,
+          },
         });
         return;
       }
