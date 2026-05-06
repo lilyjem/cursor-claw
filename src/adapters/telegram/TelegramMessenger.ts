@@ -1,6 +1,7 @@
 import { InputFile } from "grammy";
 import { createBot, type GrammyBot } from "./grammyClient.js";
 import { ImageGroupBuffer } from "./ImageGroupBuffer.js";
+import { downloadTelegramFile } from "./downloadFile.js";
 import type { IMessenger } from "../../core/messenger/IMessenger.js";
 import type {
   IncomingTextMessage,
@@ -20,6 +21,8 @@ export interface TelegramMessengerConfig {
   allowedUserIds?: number[];
   // M2: 媒体组 debounce 时间，太小会拆开 album，太大用户感知延迟
   mediaGroupDebounceMs?: number;
+  // F-05: 单次图片下载的字节上限。配置项必填上限，下载逻辑分三层强制（file_size 预检查 / content-length / 流式累计）。
+  maxFileSizeBytes: number;
 }
 
 // ImageGroupBuffer 内部缓存的 photo 元数据。
@@ -128,13 +131,12 @@ export class TelegramMessenger implements IMessenger {
       const fileId = largest.file_id;
       const caption = ctx.message.caption ?? undefined;
       const groupId = ctx.message.media_group_id ?? undefined;
-      const dataPromise = (async () => {
-        const file = await ctx.api.getFile(fileId);
-        const url = `https://api.telegram.org/file/bot${this.cfg.botToken}/${file.file_path}`;
-        const res = await fetch(url);
-        const buf = Buffer.from(await res.arrayBuffer());
-        return buf.toString("base64");
-      })();
+      const dataPromise = downloadTelegramFile({
+        api: ctx.api,
+        fileId,
+        botToken: this.cfg.botToken,
+        maxFileSizeBytes: this.cfg.maxFileSizeBytes,
+      });
       // 关键：promise 已经"未 await"地附加在 item 上 push 进 buffer；
       // 必须挂一个 catch 防止 unhandledRejection 直接让 node 崩溃，
       // 真正的错误捕获在 buffer flush 的 Promise.all 那里。

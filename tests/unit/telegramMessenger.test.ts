@@ -6,6 +6,7 @@ describe("TelegramMessenger", () => {
     const m = new TelegramMessenger({
       botToken: "1234:fake-not-used",
       parseMode: "HTML",
+      maxFileSizeBytes: 20 * 1024 * 1024,
     });
     await expect(m.stop()).resolves.toBeUndefined();
   });
@@ -14,6 +15,7 @@ describe("TelegramMessenger", () => {
     const m = new TelegramMessenger({
       botToken: "1234:fake-not-used",
       parseMode: "HTML",
+      maxFileSizeBytes: 20 * 1024 * 1024,
     });
     await expect(m.sendText("1", "hi")).rejects.toThrow(/未启动/);
   });
