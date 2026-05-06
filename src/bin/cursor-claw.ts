@@ -56,6 +56,8 @@ async function main(): Promise<void> {
     allowedUserIds: cfg.telegram.allowedUserIds,
     // M2: 媒体组聚合 debounce 时间（控制 album 拼合的等待窗口）
     mediaGroupDebounceMs: cfg.images.mediaGroupDebounceMs,
+    // F-05: 把 attachments.maxFileSizeBytes 真正注入到下载层（之前仅 schema 有定义、无实施）
+    maxFileSizeBytes: cfg.attachments.maxFileSizeBytes,
   });
   const runtime = new CursorSdkRuntime(cfg.cursor.apiKey);
 
