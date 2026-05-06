@@ -16,6 +16,15 @@ export interface IncomingImageMessage {
   caption?: string;
 }
 
+// M2：媒体组——一次"用户发图"事件可能含 1..N 张图，caption 取首张非空
+export interface IncomingImageGroup {
+  chatId: string;
+  userId: number;
+  username?: string;
+  images: Array<{ data: string; mimeType: string }>;
+  caption?: string;
+}
+
 export interface SendOptions {
   // 单条消息级 parseMode 优先于 messenger 全局默认
   parseMode?: "HTML" | "Markdown" | "plain";

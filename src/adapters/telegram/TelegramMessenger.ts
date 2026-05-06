@@ -1,9 +1,11 @@
 import { InputFile } from "grammy";
 import { createBot, type GrammyBot } from "./grammyClient.js";
+import { ImageGroupBuffer } from "./ImageGroupBuffer.js";
 import type { IMessenger } from "../../core/messenger/IMessenger.js";
 import type {
   IncomingTextMessage,
   IncomingImageMessage,
+  IncomingImageGroup,
   MessageHandle,
   ImagePayload,
   FilePayload,
@@ -16,24 +18,59 @@ export interface TelegramMessengerConfig {
   parseMode: "HTML" | "Markdown" | "plain";
   // 适配器层也做一道白名单，避免 emit 事件之前就泄漏给业务层
   allowedUserIds?: number[];
+  // M2: 媒体组 debounce 时间，太小会拆开 album，太大用户感知延迟
+  mediaGroupDebounceMs?: number;
+}
+
+// ImageGroupBuffer 内部缓存的 photo 元数据（与 IncomingImageGroup 几乎重合，
+// 但需要额外携带 chatId / userId / username 以便聚合后构造 group 事件）
+interface PendingPhoto {
+  data: string;
+  mimeType: string;
+  caption?: string;
+  chatId: string;
+  userId: number;
+  username?: string;
 }
 
 /**
  * grammy 实现 IMessenger。
  * - long-polling：bot.start() 是常驻任务，整个进程启动后只调一次
- * - 图片接收：取最大尺寸，下载后转 base64 emit 给业务层
+ * - 图片接收（M2）：用 ImageGroupBuffer 把同 media_group_id 的多张图聚合成单次 imageGroup 事件；
+ *   旧的单图 image 事件保留 listener 注册能力但不再 emit（迁移到 imageGroup）
  * - editText 容错：Telegram 对"内容未变化"的编辑会抛错，吞掉
  */
 export class TelegramMessenger implements IMessenger {
   private bot?: GrammyBot;
   private textListeners: Array<(m: IncomingTextMessage) => void> = [];
   private imageListeners: Array<(m: IncomingImageMessage) => void> = [];
+  private imageGroupListeners: Array<(m: IncomingImageGroup) => void> = [];
+  private buffer?: ImageGroupBuffer<PendingPhoto>;
 
   constructor(private readonly cfg: TelegramMessengerConfig) {}
 
   async start(): Promise<void> {
     const bot = createBot(this.cfg.botToken);
     this.bot = bot;
+
+    // M2: 用 ImageGroupBuffer 把同 media_group_id 的多张图聚合成一次 emit
+    this.buffer = new ImageGroupBuffer<PendingPhoto>(
+      this.cfg.mediaGroupDebounceMs ?? 200,
+      (items) => {
+        if (items.length === 0) return;
+        // 用首张的 chatId / userId 作为整组的"主"标识；caption 取首条非空
+        const first = items[0]!;
+        const caption = items.map((i) => i.caption).find((c) => !!c);
+        const group: IncomingImageGroup = {
+          chatId: first.chatId,
+          userId: first.userId,
+          username: first.username,
+          images: items.map((i) => ({ data: i.data, mimeType: i.mimeType })),
+          caption,
+        };
+        for (const l of this.imageGroupListeners) l(group);
+      },
+    );
 
     bot.on("message:text", (ctx) => {
       const userId = ctx.from?.id;
@@ -70,19 +107,20 @@ export class TelegramMessenger implements IMessenger {
         const url = `https://api.telegram.org/file/bot${this.cfg.botToken}/${file.file_path}`;
         const res = await fetch(url);
         const buf = Buffer.from(await res.arrayBuffer());
-        const mimeType = "image/jpeg";
         const data = buf.toString("base64");
+        const mimeType = "image/jpeg";
         const caption = ctx.message.caption ?? undefined;
-        for (const l of this.imageListeners) {
-          l({
-            chatId,
-            userId,
-            username: ctx.from?.username,
-            data,
-            mimeType,
-            caption,
-          });
-        }
+        const item: PendingPhoto = {
+          data,
+          mimeType,
+          caption,
+          chatId,
+          userId,
+          username: ctx.from?.username,
+        };
+        // media_group_id 由 grammy 暴露在 ctx.message
+        const groupId = ctx.message.media_group_id ?? undefined;
+        this.buffer?.push(groupId, item);
       } catch (e) {
         logger.error({ err: (e as Error).message }, "下载图片失败");
       }
@@ -99,15 +137,23 @@ export class TelegramMessenger implements IMessenger {
       await this.bot.stop();
       this.bot = undefined;
     }
+    this.buffer?.dispose();
+    this.buffer = undefined;
   }
 
   on(event: "text", h: (m: IncomingTextMessage) => void): void;
   on(event: "image", h: (m: IncomingImageMessage) => void): void;
-  on(event: "text" | "image", h: (m: never) => void): void {
+  on(event: "imageGroup", h: (m: IncomingImageGroup) => void): void;
+  on(
+    event: "text" | "image" | "imageGroup",
+    h: (m: never) => void,
+  ): void {
     if (event === "text") {
       this.textListeners.push(h as (m: IncomingTextMessage) => void);
-    } else {
+    } else if (event === "image") {
       this.imageListeners.push(h as (m: IncomingImageMessage) => void);
+    } else {
+      this.imageGroupListeners.push(h as (m: IncomingImageGroup) => void);
     }
   }
 
