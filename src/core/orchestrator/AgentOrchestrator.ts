@@ -5,7 +5,6 @@ import type { SessionStore } from "../session/SessionStore.js";
 import { StreamRenderer, type StreamRendererOptions } from "./streamRenderer.js";
 import { summarizeTool } from "./toolSummary.js";
 import { decideBusyAction, type RunStatus } from "./busyPolicy.js";
-import { markdownToHtml } from "../render/markdownToHtml.js";
 import type { IAgentRuntime, RuntimeAgent, RuntimeRun } from "./runtime.js";
 import type { AttachmentDispatcher } from "../attachments/AttachmentDispatcher.js";
 
@@ -164,7 +163,9 @@ export class AgentOrchestrator {
       for await (const event of run.stream()) {
         switch (event.type) {
           case "assistant":
-            await renderer.pushText(markdownToHtml(event.text));
+            // M2 polish：StreamRenderer 内部存 raw markdown + compose 时整体转换；
+            // 避免 SDK 把 ** / ` / [ ] 等成对标记切到不同 chunk 后 regex 匹配失败原文残留。
+            await renderer.pushText(event.text);
             break;
           case "thinking":
             renderer.setStatus("🤔 thinking...");
