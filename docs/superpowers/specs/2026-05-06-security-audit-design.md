@@ -53,7 +53,7 @@
 | ID | 领域 | 关键检查项 |
 |---|---|---|
 | **D1** | Secret / 敏感面 | git 全历史 secret 扫描（gitleaks 或等价 regex 集）；`.gitignore` 完整性；README/docs 示例中是否误写真 token；log 输出是否会打印 token / API key |
-| **D2** | 依赖供应链 | `npm audit`；关键依赖（telegraf、cursor-sdk）人工 review；`package-lock.json` 完整性；`postinstall` / `preinstall` 等 script 渗透面；过时依赖；license 合规 |
+| **D2** | 依赖供应链 | `npm audit`；关键依赖（`grammy`、`@cursor/sdk`、`pino`、`zod` 等）人工 review；`package-lock.json` 完整性；`postinstall` / `preinstall` 等 script 渗透面；过时依赖；license 合规 |
 | **D3** | Telegram 输入 / 权限 | `allowedUserIds` 白名单实施位置（每个 handler 都检查吗？）；命令解析时的输入校验；附件下载 `maxFileSizeBytes` 是否真正强制（而不仅是文档承诺）；速率/flood 防护；`parseMode: HTML` 下用户文本是否会被 Telegram 客户端解析为 HTML |
 | **D4** | Cursor SDK / Prompt Injection | 用户消息进入 prompt 时是否做边界标记；agent 是否被允许执行任意 tool（特别是文件写）；`settingSources` 配置安全性；Cursor API key 是否仅来自 env / config（不会被 prompt 写入日志）；错误消息是否回显 |
 | **D5** | 运行时代码审计 | 命令注入（`child_process` / `spawn`）、路径穿越（凡是拼接 `data/`、附件路径处）、SSRF（fetch 用户给定 URL）、不安全反序列化（`JSON.parse` 用户内容据此执行）、错误信息泄露（catch 后向 Telegram 回传堆栈/绝对路径）、资源耗尽（图像/附件无限大、timer 无上限、map 无大小约束） |
