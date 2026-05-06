@@ -12,6 +12,7 @@ import { CursorSdkRuntime } from "../core/orchestrator/cursorSdkRuntime.js";
 import { AttachmentQueue } from "../core/attachments/AttachmentQueue.js";
 import { AttachmentDispatcher } from "../core/attachments/AttachmentDispatcher.js";
 import { ReminderStore } from "../core/reminders/ReminderStore.js";
+import { ReminderQuota } from "../core/reminders/ReminderQuota.js";
 import { ReminderScheduler } from "../core/reminders/ReminderScheduler.js";
 import { parseCommand } from "../commands/parser.js";
 import { dispatchCommand } from "../commands/dispatch.js";
@@ -122,6 +123,10 @@ async function main(): Promise<void> {
     sendText: async (chatId, text) => {
       await messenger.sendText(chatId, text);
     },
+  });
+  // F-06：/remind add 写入前按 createdBy 做数量上限检查（默认 100/user）
+  const reminderQuota = new ReminderQuota(scheduler, {
+    maxPerUser: cfg.rateLimit.reminders.maxPerUser,
   });
   await scheduler.start();
 
@@ -275,6 +280,7 @@ async function main(): Promise<void> {
           session,
           orchestrator,
           scheduler,
+          reminderQuota,
           reminderConfig: {
             tz: cfg.reminders.timezone,
             maxAheadDays: cfg.reminders.maxAheadDays,

@@ -3,6 +3,7 @@ import type { WorkspaceRegistry } from "../core/workspace/WorkspaceRegistry.js";
 import type { SessionStore } from "../core/session/SessionStore.js";
 import type { AgentOrchestrator } from "../core/orchestrator/AgentOrchestrator.js";
 import type { ReminderScheduler } from "../core/reminders/ReminderScheduler.js";
+import type { ReminderQuota } from "../core/reminders/ReminderQuota.js";
 import type { ParsedCommand } from "./parser.js";
 import { handleHelp } from "./handlers/help.js";
 import { handleWs } from "./handlers/ws.js";
@@ -23,6 +24,7 @@ export interface CommandContext {
   orchestrator: AgentOrchestrator;
   // M2：reminder 相关依赖；不注入则 /remind 命令回错误提示
   scheduler?: ReminderScheduler;
+  reminderQuota?: ReminderQuota;
   reminderConfig?: { tz: string; maxAheadDays: number };
 }
 
@@ -45,7 +47,7 @@ export async function dispatchCommand(
     case "model":
       return handleModel(cmd.args, ctx);
     case "remind":
-      if (!ctx.scheduler || !ctx.reminderConfig) {
+      if (!ctx.scheduler || !ctx.reminderQuota || !ctx.reminderConfig) {
         await ctx.messenger.sendText(
           ctx.chatId,
           "/remind 暂未启用（reminder scheduler 未注入）",
@@ -57,6 +59,7 @@ export async function dispatchCommand(
         userId: ctx.userId ?? 0,
         messenger: ctx.messenger,
         scheduler: ctx.scheduler,
+        reminderQuota: ctx.reminderQuota,
         registry: ctx.registry,
         now: () => Date.now(),
         tz: ctx.reminderConfig.tz,
