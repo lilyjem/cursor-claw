@@ -66,7 +66,8 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
     await p;
 
     // 透传校验：text + images
-    expect(agent.lastSend?.text).toBe("这是什么？");
+    expect(agent.lastSend?.text).toContain("<user_request>");
+    expect(agent.lastSend?.text).toContain("这是什么？");
     expect(agent.lastSend?.images).toEqual([
       { data: "AAA=", mimeType: "image/jpeg" },
     ]);
@@ -160,7 +161,8 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
       run.setScript([{ type: "assistant", text: "查到了" }]);
       const r = await p;
       expect(r.delivered).toBe(true);
-      expect(agent.lastSend?.text).toBe("查 BTC 价格");
+      expect(agent.lastSend?.text).toContain("<user_request>");
+      expect(agent.lastSend?.text).toContain("查 BTC 价格");
     });
   });
 
