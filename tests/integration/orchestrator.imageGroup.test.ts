@@ -111,6 +111,7 @@ describe("AgentOrchestrator.runPromptWithImages", () => {
       messenger,
       maxRetries: 3,
       maxPerFlush: 10,
+      pendingRoot: pendingDir,
     });
     const orch2 = new AgentOrchestrator({
       messenger,
