@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clawfox browser integration
 - MCP config hot-reload
 
+## [0.1.1] &mdash; 2026-05-06
+
 ### Documentation
 - Add full bilingual README, MIT `LICENSE`, and `docs/{INSTALL,PREREQUISITES,DEPLOYMENT,FAQ}.md`
 - Add `.github/CONTRIBUTING.md`

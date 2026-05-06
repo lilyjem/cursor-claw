@@ -1,6 +1,6 @@
 {
   "name": "cursor-claw",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Telegram <-> Cursor SDK bridge — drive Cursor agents on your local repos from your phone.",
   "type": "module",
