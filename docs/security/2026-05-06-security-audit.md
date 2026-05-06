@@ -41,6 +41,7 @@
 | F-09 | 用户消息直接作为 agent prompt，无系统边界标记 | Info | D4 | Open | - |
 | F-10 | Cursor agent 默认拥有完整 tool 权限，无白名单 | Medium | D4 | Open | - |
 | F-11 | `r.result` 字段被 logger 全文输出（路径泄露） | Low | D4 | Open | - |
+| F-12 | `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验 | Low | D5 | Open | - |
 
 ---
 
@@ -662,7 +663,78 @@ logger.error({ err: safeResult, durationMs: r.durationMs }, "run finished with e
 
 ## D5 · 运行时代码审计
 
-> _T5 任务填写。_
+### 扫描清单与证据（按 6 子类）
+
+| 子类 | 扫描命令 | 结果 |
+|---|---|---|
+| **命令注入** | `grep child_process\|spawn\|execSync\|execFile\|exec\(` 全 src | **0 命中**（仅 regex `.exec(text)` 假阳性 2 处：`timeParser.ts`、`markdownToHtml.ts`）。整个项目**无任何命令执行**，命令注入面 = 0 ✓ |
+| **路径穿越** | `grep path.(join\|resolve\|normalize)` + 读 `attach-image.ts`/`attach-file.ts`/`AttachmentDispatcher.ts` | 详见 D6（与文件系统审查重叠） |
+| **SSRF** | `grep fetch\|axios\|got\|http.get\|http.request` 全 src | **唯一 fetch** 在 `TelegramMessenger.ts:134`，URL 由 Telegram API 返回的 file_path 决定（owner 控制的 token 鉴权），**不接受任何 user-controlled URL** → SSRF 面 = 0 ✓ |
+| **不安全反序列化** | `grep JSON.parse\|yaml.load\|eval\|new Function\|vm.run` 全 src | `eval`/`Function`/`vm.run` **0 命中** ✓；`JSON.parse` 3 处（`loadConfig.ts:18` 走 zod 校验 ✓ / `jsonStore.ts:27` `as T` 强转 ⚠️ / `AttachmentQueue.ts:45` `as AttachmentEntry` 强转 ⚠️） → 见 F-12 |
+| **错误信息泄露** | 见 D4 | F-01 + F-11 已识别，D5 不重复开新 finding |
+| **资源耗尽** | grep `setTimeout\|setInterval\|new Map\|new Set` + 读 `ReminderScheduler.ts` `AgentOrchestrator.ts pool` `MediaGroupBuffer` | reminder timers/firePromises 无大小上限（已在 F-06 覆盖，作为放大点）；`AgentOrchestrator.pool` 按 workspace 数增长（受 owner 控制，可接受）；`MediaGroupBuffer` 内部 Map 由 debounce 保证清理，无泄露 |
+
+### F-12 · `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Low**（防御深度 / 攻击者需先有 host write 权限） |
+| CWE | CWE-502（Deserialization of Untrusted Data） |
+| 领域 | D5 |
+| 位置 | `src/core/persist/jsonStore.ts:27`（`JSON.parse(raw) as T`）+ `src/core/attachments/AttachmentQueue.ts:45`（`JSON.parse(t) as AttachmentEntry`） |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+`JsonStore` 是泛型持久化抽象，`readOrInit` 把磁盘文件原文 `JSON.parse(...) as T` 强转后返回。**无任何 schema 校验**，意味着：
+
+- 如果 `data/reminders.json` 被外部进程篡改注入新字段（如 `__proto__` 污染、超大数组、循环引用代码），cursor-claw 会按 type assertion 信任。
+- `AttachmentQueue.readAll` 同样直接 `JSON.parse(t) as AttachmentEntry`。entry.path / entry.cwd 字段未来流入 fs 操作（见 D6）。
+
+**影响**
+
+- 必须先攻陷主机 write 权限才能利用 → 若已被攻陷，本 finding 不构成新增风险
+- 但作为防御深度，schema 校验是廉价的护城河
+- 实际有意义场景：`config.json` 已经走 zod 校验（loadConfig），但 `data/*.json` 是同样级别的"运行时不可信"输入
+
+**修复建议**
+
+为每个 JsonStore 实例传入对应的 zod schema：
+
+```ts
+// src/core/persist/jsonStore.ts
+import type { z } from "zod";
+
+export class JsonStore<T> {
+  constructor(
+    private readonly filePath: string,
+    private readonly defaults: T,
+    private readonly schema?: z.ZodType<T>,    // 新增可选 schema
+  ) {}
+
+  async readOrInit(): Promise<T> {
+    // ...原逻辑...
+    const parsed = JSON.parse(raw);
+    this.cache = this.schema ? this.schema.parse(parsed) : (parsed as T);
+    return this.cache;
+  }
+}
+```
+
+调用方为已知数据形状传入 schema：
+
+```ts
+// e.g. WorkspaceRegistry / SessionStore / ReminderStore
+const ReminderFileSchema = z.object({ items: z.array(ReminderSchema) });
+const store = new JsonStore("./data/reminders.json", DEFAULTS, ReminderFileSchema);
+```
+
+`AttachmentQueue` 同理：每行 parse 后过 zod。
+
+**修复成本**：M（半天，含 5-6 个 store 的 schema 定义 + 测试）。
+
+
 
 ---
 
