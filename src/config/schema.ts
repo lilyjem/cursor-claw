@@ -33,8 +33,12 @@ export const ConfigSchema = z.object({
       .default({ enabled: true }),
   }),
   workspaces: z
-    .object({ autoRegisterCwd: z.boolean().default(true) })
-    .default({ autoRegisterCwd: true }),
+    .object({
+      autoRegisterCwd: z.boolean().default(true),
+      // F-07：/ws add 路径白名单；空数组时由主入口注入 cwd + 既有 workspace 路径作为兼容默认
+      allowedRoots: z.array(z.string()).default([]),
+    })
+    .default({ autoRegisterCwd: true, allowedRoots: [] }),
   mcpServers: z.record(z.string(), z.unknown()).optional(),
   paths: z
     .object({ dataDir: z.string().default("./data") })
