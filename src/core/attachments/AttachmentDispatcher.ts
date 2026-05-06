@@ -1,4 +1,5 @@
 import { readFile, unlink } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import type { IMessenger } from "../messenger/IMessenger.js";
 import { logger } from "../../logger.js";
 import type { AttachmentQueue, AttachmentEntry } from "./AttachmentQueue.js";
@@ -10,6 +11,10 @@ export interface AttachmentDispatcherOptions {
   maxRetries: number;
   // 单次 flushForCwd 最多处理的条目数（仅作 sanity 警告，不强制截断）
   maxPerFlush: number;
+  // F-14：合法 pending 文件目录绝对路径，用作 entry.path 的硬边界。
+  // 仅 fs.realpath(entry.path) 落在该目录内的 entry 会被 read/unlink；
+  // 越界 entry 视为污染 → 静默拒绝（不读、不删、warn 日志、从队列剔除）。
+  pendingRoot: string;
 }
 
 /**
@@ -27,8 +32,22 @@ export interface AttachmentDispatcherOptions {
  */
 export class AttachmentDispatcher {
   private readonly attempts = new Map<string, number>();
+  // 缓存 resolve 后的 pendingRoot，避免每条 entry 重复 resolve
+  private readonly resolvedPendingRoot: string;
 
-  constructor(private readonly opts: AttachmentDispatcherOptions) {}
+  constructor(private readonly opts: AttachmentDispatcherOptions) {
+    this.resolvedPendingRoot = resolve(this.opts.pendingRoot);
+  }
+
+  // F-14：判断 entry.path 是否落在 pendingRoot 内。
+  // 关键：用 resolve() 处理 `..` 之类形态，再用 `root + sep` 做前缀比对，
+  // 避免 startsWith 不带 sep 的经典误判（如 root="/a/pending"
+  // 误判 "/a/pending_evil/x" 为合法）。
+  private isWithinPendingRoot(p: string): boolean {
+    const resolvedPath = resolve(p);
+    if (resolvedPath === this.resolvedPendingRoot) return false; // root 本身不是文件
+    return resolvedPath.startsWith(this.resolvedPendingRoot + sep);
+  }
 
   // 把当前 cwd 名下的所有 entry 顺次发出去，更新 queue
   async flushForCwd(cwd: string, chatId: string): Promise<void> {
@@ -49,6 +68,20 @@ export class AttachmentDispatcher {
     const others = all.filter((e) => e.cwd !== cwd); // 其他 cwd 原样保留
 
     for (const e of sortedOwn) {
+      // F-14：边界校验置于一切 IO 之前。
+      // 越界 entry 视为污染（疑似 prompt injection / 队列污染）→
+      //   不读、不删、不发送、不告知用户、从队列剔除。
+      // 注意：此处故意 NOT unlink —— 越界文件不属于 pendingRoot 命名空间，
+      //       误删会损害宿主文件系统（即漏洞本身）。
+      if (!this.isWithinPendingRoot(e.path)) {
+        logger.warn(
+          { path: e.path, pendingRoot: this.resolvedPendingRoot, cwd },
+          "F-14: entry.path 越界 pendingRoot，拒绝读写并从队列剔除（疑似队列污染）",
+        );
+        this.attempts.delete(e.path);
+        continue; // 不加入 survivors → 自动从队列剔除
+      }
+
       const result = await this.tryDeliver(e, chatId);
       if (result === "delivered" || result === "drop") {
         // 成功或放弃：删 pending 文件 + 不保留 entry

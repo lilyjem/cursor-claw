@@ -65,11 +65,14 @@ async function main(): Promise<void> {
   const queue = new AttachmentQueue(
     join(dataDir, "attachments", "queue.jsonl"),
   );
+  // F-14：把 pending 目录绝对路径传给 dispatcher，作为 entry.path 的硬边界
+  const pendingRoot = join(dataDir, "attachments", "pending");
   const dispatcher = new AttachmentDispatcher({
     queue,
     messenger,
     maxRetries: cfg.attachments.maxRetries,
     maxPerFlush: cfg.attachments.maxAttachmentsPerFlush,
+    pendingRoot,
   });
 
   // M2: reminders store + scheduler
