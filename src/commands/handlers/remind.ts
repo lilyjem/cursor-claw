@@ -9,6 +9,7 @@ import {
   type Reminder,
 } from "../../core/reminders/ReminderStore.js";
 import { parseTimeExpr } from "../../core/reminders/timeParser.js";
+import { escapeHtml } from "../../util/html.js";
 
 export interface RemindContext {
   chatId: string;
@@ -163,9 +164,9 @@ async function handleList(ctx: RemindContext): Promise<void> {
       const when = new Date(r.at).toISOString();
       const summary =
         r.kind === "text"
-          ? `text: ${r.text}`
-          : `prompt[${r.workspaceId}]: ${r.prompt}`;
-      return `${r.id}  ${when}\n  ${summary}`;
+          ? `text: ${escapeHtml(r.text)}`
+          : `prompt[${escapeHtml(r.workspaceId)}]: ${escapeHtml(r.prompt)}`;
+      return `${escapeHtml(r.id)}  ${when}\n  ${summary}`;
     });
   await ctx.messenger.sendText(ctx.chatId, lines.join("\n\n"));
 }
@@ -179,7 +180,10 @@ async function handleDel(rest: string[], ctx: RemindContext): Promise<void> {
     return;
   }
   await ctx.scheduler.remove(id);
-  await ctx.messenger.sendText(ctx.chatId, `已删除 ${id}（若存在）。`);
+  await ctx.messenger.sendText(
+    ctx.chatId,
+    `已删除 ${escapeHtml(id)}（若存在）。`,
+  );
 }
 
 // 把 fullRest 里前导的 kind / expr 两个 token 剥掉，保留之后原始空格
