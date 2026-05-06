@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - **F-05 (High)** Enforce `maxFileSizeBytes` cap across the photo download path with three gates (file_size pre-check / content-length / streaming accumulator). Closes the OOM DoS attack a single allowed user could trigger by sending oversized files. Side-effect: closes one of the F-01 user-side leak vectors by sanitizing fetch error messages. ([PR #1](https://github.com/lilyjem/cursor-claw/pull/1))
+- **F-14 (Medium)** Enforce `pendingRoot` boundary in `AttachmentDispatcher`. Reject any `queue.jsonl` entry whose path resolves outside the dispatcher's pending directory before any `readFile` / `unlink` / `sendImage`. Closes a path-traversal primitive that would let a successful prompt-injection (or queue-tampering) attacker exfiltrate arbitrary host files to the user's chat and `unlink` them. Uses `+ sep` prefix matching to also block sibling-directory bypass (`pendingRoot_evil/...`). ([PR #2](https://github.com/lilyjem/cursor-claw/pull/2))
+- **F-02 (High)** Marked **Accepted-Risk**: `undici` ≤ 6.23.0 transitive vulnerabilities are not exploitable in this project's runtime call pattern (no HTTP server ingress; HTTP smuggling N/A; gzip-bomb requires MITM of Telegram CDN, blocked by TLS + threat-model trust assumption). Awaiting upstream `@cursor/sdk` / `@connectrpc/connect-node` upgrade. See `docs/security/2026-05-06-security-audit.md` F-02 for the full per-GHSA exposure matrix.
 
 ---
 

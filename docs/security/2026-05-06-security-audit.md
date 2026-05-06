@@ -43,7 +43,7 @@
 | F-11 | `r.result` 字段被 logger 全文输出（路径泄露） | Low | D4 | Open | - |
 | F-12 | `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验 | Low | D5 | Open | - |
 | F-13 | `data/` 目录与文件未显式设置受限权限（默认 0755/0644） | Medium | D6 | Open | - |
-| F-14 | `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中任意 path | Medium | D6 | Open | - |
+| F-14 | `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中任意 path | Medium | D6 | **Fixed** | [#2](https://github.com/lilyjem/cursor-claw/pull/2) |
 
 ---
 
@@ -847,8 +847,8 @@ await appendFile(queuePath, line, { encoding: "utf8", mode: 0o600 });
 | CWE | CWE-22（Path Traversal）+ CWE-73（External Control of File Name or Path） |
 | 领域 | D6 |
 | 位置 | `src/core/attachments/AttachmentDispatcher.ts:56`（`unlink(e.path)`）+ `src/core/attachments/AttachmentDispatcher.ts:78`（`readFile(e.path)`） |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#2](https://github.com/lilyjem/cursor-claw/pull/2)（commit `e0658de`） |
 
 **复现 / 触发条件**
 
@@ -901,4 +901,16 @@ if (!isWithin(pendingDir, e.path)) {
 
 **修复成本**：S（< 30 分钟），含 unit 测试覆盖越界路径会被 drop。
 
+**修复实施**（2026-05-06，PR [#2](https://github.com/lilyjem/cursor-claw/pull/2)）：
+1. 在 `AttachmentDispatcherOptions` 新增**必填**字段 `pendingRoot: string`；构造时一次性 `resolve()` 缓存。
+2. 每条 entry 进入 IO 前先校验：`resolve(entry.path).startsWith(resolvedRoot + sep)`，并显式拒绝"等于 root 本身"的退化情形；`+ sep` 用于堵住经典的 `startsWith` 兄弟目录绕过（`/a/pending` vs `/a/pending_evil/x`）。
+3. 越界 entry 处理：**warn 日志 + 从队列剔除**，但**显式不 readFile / unlink / sendText**——越界文件不属于 dispatcher 命名空间，触碰它就是漏洞本身。
+4. `src/bin/cursor-claw.ts` 把 `pendingRoot = join(dataDir, "attachments", "pending")` 接入。
+5. TDD 覆盖（`tests/integration/attachmentDispatcher.test.ts`）：
+   - 绝对路径越界 → evil 文件未被 unlink、未发送、entry 剔除、合法 entry 仍流转
+   - 同级兄弟目录 (`pendingRoot + "_evil"`) → 拒绝（验证 `+ sep` 正确性）
+6. 全量 25 test files / 148 tests 通过；F-14 warn 日志在两个新 case 中确实触发。
+
+**剩余敞口**（已识别、未在本 PR 处理）：
+- pendingRoot 内部的符号链接指向外部：要利用需要在 pendingRoot 写入权限，已属比 queue 篡改更高的能力等级；如威胁模型扩展，可在后续用 `fs.realpath` 加固。
 
