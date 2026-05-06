@@ -7,7 +7,8 @@
   "cursor": {
     "apiKey": "REPLACE_OR_SET_CURSOR_API_KEY_ENV",
     "defaultModel": { "id": "default", "params": [] },
-    "settingSources": ["project", "user"]
+    "settingSources": ["project", "user"],
+    "sandboxOptions": { "enabled": true }
   },
   "workspaces": { "autoRegisterCwd": true },
   "paths": { "dataDir": "./data" },
