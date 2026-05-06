@@ -30,3 +30,6 @@ logs/
 *.tmp
 *.swp
 *.swo
+
+# M2: cursor-claw 在 active workspace 写入的标记目录（attach CLI 用它定位 dataDir）
+.claw/

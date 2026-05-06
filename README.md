@@ -56,10 +56,36 @@ export CURSOR_API_KEY="..."
 npx tsx tests/manual/sdk_smoke.ts
 ```
 
+## M2：入站图片 / 出站附件 / Reminders
+
+M2 在 M1 文本对话基础上增加：
+
+- **入站图片**：Telegram 用户发图（含多图 album）→ agent 自动接收并分析
+- **出站附件**：agent 在 shell tool 中调 `claw-attach-image /tmp/x.png` 把文件回发给 Telegram
+- **Reminders**：`/remind add text 10m 喝水` 或 `/remind add prompt 09:00 看 BTC 价格`
+
+### 安装 attach CLI
+
+```bash
+npm i -g cursor-claw   # 全局安装后 PATH 里有 claw-attach-image / claw-attach-file
+```
+
+或者本地开发用 `npm link`。
+
+agent 在 workspace 根目录跑时会自动通过 `.claw/data-dir.txt` 找到 cursor-claw 主进程的 data 目录；如果失败，可以显式 `CLAW_DATA_DIR=/path/to/data` 注入。
+
+### Reminders 时间格式
+
+- 相对：`10m` `1h30m` `45s` `2d`
+- 当日：`09:00` `22:30`
+- 绝对：`2026-05-06T09:00`（用 T 分隔）
+
+时区默认 `Asia/Shanghai`，可在 `config.json` 的 `reminders.timezone` 覆盖。
+
 ## 路线图
 
-- **M1（本里程碑）** — 端到端文本对话、工作区切换、命令、流式渲染、cancel、白名单、systemd-friendly 退出
-- **M2** — 双向附件、入站图片、reminders、tool 输出可视化增强
+- **M1** — 端到端文本对话、工作区切换、命令、流式渲染、cancel、白名单、systemd-friendly 退出
+- **M2（本里程碑）** — 双向附件、入站图片、reminders
 - **M3** — 微信适配器骨架、Clawfox 浏览器集成、MCP 配置热更
 
 详见 `docs/superpowers/specs/2026-05-05-cursor-claw-design.md`。
