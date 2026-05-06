@@ -1,6 +1,6 @@
 # cursor-claw Security Audit · 2026-05-06
 
-**Status**：In progress · 6 领域审查中
+**Status**：Audit complete · 14 个 finding 已识别，等待逐项处置决策（T8）
 **Scope**：commit `810a3d9` 公开化时刻基线
 **Spec**：[2026-05-06-security-audit-design.md](../superpowers/specs/2026-05-06-security-audit-design.md)
 **Plan**：[2026-05-06-security-audit.md](../superpowers/plans/2026-05-06-security-audit.md)
@@ -10,21 +10,21 @@
 
 ## Executive Summary
 
-> _本节在 T7 任务整合时填写。_
+本次审查覆盖 cursor-claw 仓库公开化时刻的全部源码（`src/` 8 个子目录、141 个测试通过）、依赖面（96 prod + 267 dev + 158 optional = 436 包）、配置（`config.example.json` / `schema.ts`），共识别 **14 个 finding**。整体代码质量较高：**命令注入、SSRF、`eval`/`Function`、git 历史 secret 泄露面均为零**；问题集中在 (1) 依赖供应链中已披露但未升级的 CVE，(2) 一处文件大小限制配置项 schema 中定义但全代码库无实施点，(3) 一系列防御深度缺口（路径边界、权限设置、prompt 边界、错误回显内容脱敏）。无 Critical 级别 finding，无 secret 泄露事实。
 
 ### 严重级分布
 
 | Critical | High | Medium | Low | Info | 合计 |
 |---|---|---|---|---|---|
-| - | - | - | - | - | - |
+| 0 | 2 | 6 | 4 | 2 | **14** |
 
 ### Top 3 Priority
 
-| 序号 | Finding ID | 标题 | 严重级 |
-|---|---|---|---|
-| 1 | - | - | - |
-| 2 | - | - | - |
-| 3 | - | - | - |
+| 序号 | Finding ID | 标题 | 严重级 | 选择理由 |
+|---|---|---|---|---|
+| 1 | F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | 直接 OOM DoS，已被允许用户即可触发；配置项给运维错误的安全感；修复 cost M |
+| 2 | F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | 已披露 CVE，public 仓库后扫描器立即可识别；修复需 overrides；cost M |
+| 3 | F-14 | `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中任意 path | Medium | 与 F-09/F-10 联动放大 prompt injection 后果（任意文件外发 + 删除）；修复 cost S |
 
 ### Findings ToC
 
@@ -44,6 +44,15 @@
 | F-12 | `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验 | Low | D5 | Open | - |
 | F-13 | `data/` 目录与文件未显式设置受限权限（默认 0755/0644） | Medium | D6 | Open | - |
 | F-14 | `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中任意 path | Medium | D6 | Open | - |
+
+---
+
+## 一致性说明
+
+- 严重级分布表（0 Critical / 2 High / 6 Medium / 4 Low / 2 Info / 总计 14）与 Findings ToC 行数一致 ✓
+- 每条 finding 均含至少 4 个核心字段（严重级 / 位置 / 影响 / 修复建议）✓
+- Top 3 Priority 在 Findings ToC 中均存在且严重级匹配 ✓
+- 每条 finding 状态当前均为 **Open**；处置决策见 T8 阶段每个 fix PR / Accepted-Risk / Wont-Fix 标注
 
 ---
 
