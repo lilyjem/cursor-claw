@@ -2,7 +2,32 @@
   "name": "cursor-claw",
   "version": "0.1.0",
   "private": true,
+  "description": "Telegram <-> Cursor SDK bridge — drive Cursor agents on your local repos from your phone.",
   "type": "module",
+  "license": "MIT",
+  "author": "Jem Li",
+  "homepage": "https://github.com/jem-li/cursor-claw#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jem-li/cursor-claw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jem-li/cursor-claw/issues"
+  },
+  "keywords": [
+    "cursor",
+    "cursor-sdk",
+    "telegram",
+    "telegram-bot",
+    "agent",
+    "ai",
+    "automation",
+    "personal-assistant",
+    "remote-coding",
+    "wechat",
+    "messenger",
+    "grammy"
+  ],
   "engines": {
     "node": ">=20.10.0"
   },

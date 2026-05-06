@@ -1,103 +1,224 @@
-# cursor-claw
+<h1 align="center">cursor-claw</h1>
 
-基于 [`@cursor/sdk`](https://cursor.com/cn/docs/sdk/typescript) 的 Telegram ↔ Cursor agent 桥；从手机指挥 Cursor agent 在你的本机仓库工作。
+<p align="center">
+  <b>Telegram &harr; Cursor SDK bridge</b><br/>
+  Drive Cursor agents on your local repos &mdash; from your phone.
+</p>
 
-## 快速开始
+<p align="center">
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D20.10-43853d?logo=node.js&logoColor=white" alt="Node version"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/typescript-5.x-3178c6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://cursor.com/cn/docs/sdk/typescript"><img src="https://img.shields.io/badge/%40cursor%2Fsdk-1.0.x-7d56f4" alt="Cursor SDK"></a>
+  <img src="https://img.shields.io/badge/tests-141%20passing-brightgreen" alt="Tests"/>
+</p>
+
+<p align="center">
+  <b>English</b> &nbsp;·&nbsp;
+  <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <i>(screenshot &mdash; TBD: replace with <code>docs/screenshots/hero.png</code>)</i>
+</p>
+
+---
+
+## Why cursor-claw
+
+Cursor's agent capability is amazing &mdash; but it lives **inside the IDE on your desk**. The moment you walk away, you also walk away from your agent.
+
+`cursor-claw` is a tiny single-process service that runs on your dev machine and exposes Cursor agents through messengers you already carry: today **Telegram**, with **WeChat** and other channels in the roadmap. You text your bot, the bot drives Cursor agents on your local repos, the bot streams answers back. Everything runs on **your** hardware with **your** API keys &mdash; no third-party middleman.
+
+> Walking the dog &mdash; tap **`/ws use myproj`** &rarr; **`fix the failing test on main`**. Two minutes later your home dev box has a clean test run waiting for you.
+
+## Features
+
+- 🤖 **End-to-end text conversation** &mdash; full Cursor agent capability (shell, edits, tools), with throttled streaming back to the chat (default 800ms)
+- 🗂 **Multi-workspace** &mdash; register many local repos and `/ws use <name>` to switch agents
+- 🧰 **Command system** &mdash; `/help` `/ws` `/reset` `/cancel` `/status` `/model` `/remind` and a `!<text>` interrupt prefix
+- 🖼 **Inbound images** &mdash; send a photo (or an album) to the bot, the agent receives and analyses them automatically
+- 📎 **Outbound attachments** &mdash; the agent calls `claw-attach-image /tmp/x.png` from inside its shell tool, the file is delivered to your chat
+- ⏰ **Reminders** &mdash; absolute, relative or daily times; either plain text reminders or "prompt-on-fire" reminders that auto-trigger the agent
+- 🛡 **Allow-list access control** &mdash; only the Telegram user IDs you list can talk to the bot; everyone else is silently dropped
+- ✋ **Cancel & interrupt** &mdash; soft `/cancel`, hard `!new prompt`
+- 🐧 **Service-friendly** &mdash; clean `SIGTERM` handling, suitable for `systemd` / `pm2` / `launchd`
+- 🧪 **TDD-first** &mdash; 141+ unit & integration tests, full `IMessenger` / `IAgentRuntime` abstractions so the orchestrator never knows about Telegram or the Cursor SDK directly
+
+## Quickstart (60 seconds)
+
+> Need a more detailed walkthrough? See **[docs/INSTALL.md](./docs/INSTALL.md)**.
+
+### macOS / Linux / WSL2
 
 ```bash
+git clone https://github.com/jem-li/cursor-claw.git
+cd cursor-claw
 npm install
 cp config.example.json config.json
-# 编辑 config.json 填入 telegram.botToken / telegram.allowedUserIds / cursor.apiKey
-# 或者使用环境变量（优先级高于 config.json）：
-export TELEGRAM_BOT_TOKEN="..."
-export CURSOR_API_KEY="..."
+# Edit config.json (botToken, allowedUserIds, apiKey) -- or use env vars below
+
+export TELEGRAM_BOT_TOKEN="123456:abcdef..."
+export CURSOR_API_KEY="key_..."
 npm run dev
 ```
 
-打开 Telegram → 与你的 bot 私聊 → 输入 `/start` → 收到欢迎语。
+### Windows (PowerShell, native)
 
-## 命令
+```powershell
+git clone https://github.com/jem-li/cursor-claw.git
+cd cursor-claw
+npm install
+Copy-Item config.example.json config.json
+# Edit config.json (botToken, allowedUserIds, apiKey) -- or use env vars below
 
-- `/help` — 帮助
-- `/ws list|use <name>|add <name> <abs-path>|remove <name>|path` — 工作区管理
-- `/reset` — 重置当前工作区会话（销毁 agent 实例，清掉 sessionStore 中的 agentId）
-- `/cancel` — 取消当前 run
-- `/status` — 当前 agent / 工作区 / 模型
-- `/model <id>` — 切换默认模型（下次新会话生效）
-- 普通文本 → 作为 prompt 发给当前工作区的 agent
-- `!<文本>` → 强制打断当前 run 并用新文本启动（用于 agent 跑飞了的情况）
-
-## 架构
-
-层 | 模块
---- | ---
-入口 | `src/bin/cursor-claw.ts`
-适配器 | `src/adapters/telegram/`（grammy 实现 IMessenger）
-命令 | `src/commands/`（parser + dispatch + handlers）
-编排核心 | `src/core/orchestrator/`（AgentOrchestrator + StreamRenderer + busyPolicy + cursorSdkRuntime）
-工作区 / 会话 / 访问控制 | `src/core/{workspace,session,access}/`
-持久化 | `src/core/persist/jsonStore.ts`
-配置 / 日志 | `src/config/`、`src/logger.ts`
-
-抽象边界：`IMessenger` 与 `IAgentRuntime` 让 orchestrator 完全不感知 Telegram 与 Cursor SDK，单测中用 `StubMessenger` + `StubAgentRuntime` 跑端到端流程。
-
-## 测试
-
-```bash
-npm test          # 76+ 单元/集成测试
-npm run typecheck # tsc --noEmit
-npm run lint
+$env:TELEGRAM_BOT_TOKEN = "123456:abcdef..."
+$env:CURSOR_API_KEY     = "key_..."
+npm run dev
 ```
 
-烟囱测试（需要真 API key）：
+Open Telegram &rarr; private chat with your bot &rarr; type `/start` &rarr; you should see a welcome message.
+
+## Prerequisites
+
+| Requirement | How to get it |
+| --- | --- |
+| Node.js **>= 20.10** | <https://nodejs.org/> |
+| **Telegram bot token** | Talk to [@BotFather](https://t.me/BotFather) &rarr; `/newbot` &rarr; copy token |
+| **Telegram user ID** (your own) | Send `/start` to [@userinfobot](https://t.me/userinfobot) &rarr; copy numeric ID into `telegram.allowedUserIds` |
+| **Cursor API key** | <https://cursor.com/cn/docs/sdk/typescript> &rarr; settings &rarr; API keys |
+
+Detailed step-by-step (with screenshots) in **[docs/PREREQUISITES.md](./docs/PREREQUISITES.md)**.
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `/help` | Show help |
+| `/ws list` | List registered workspaces |
+| `/ws use <name>` | Switch active workspace |
+| `/ws add <name> <abs-path>` | Register a workspace |
+| `/ws remove <name>` | Unregister a workspace |
+| `/ws path` | Print current workspace path |
+| `/reset` | Reset agent for current workspace (destroy agent, clear stored agentId) |
+| `/cancel` | Cancel the current run gracefully |
+| `/status` | Show active agent / workspace / model |
+| `/model <id>` | Switch the default model (next session) |
+| `/remind add text 10m drink water` | One-shot text reminder, fires in 10 minutes |
+| `/remind add prompt 09:00 check BTC price` | Daily-time prompt reminder, fires the agent for you |
+| `/remind list` / `/remind cancel <id>` | Manage active reminders |
+| _(plain message)_ | Sent as a prompt to the active workspace agent |
+| `!<text>` | **Interrupt** the running agent and start over with new text |
+
+### Inbound images
+
+Send a photo (or an album of up to 8) to the bot. They are bundled together with an optional caption and forwarded to the agent. Defaults: 8 images per prompt, 800ms album debounce. Configurable in `config.json` under `images.*`.
+
+### Outbound attachments
+
+Inside its shell tool, the agent can call:
+
+```bash
+claw-attach-image /path/to/screenshot.png
+claw-attach-file /path/to/report.pdf
+```
+
+cursor-claw locates its data directory through `<workspace>/.claw/data-dir.txt` (auto-written when the agent runs). If that fails, set `CLAW_DATA_DIR=/path/to/data` explicitly.
+
+### Reminders &mdash; time formats
+
+- Relative: `10m` `1h30m` `45s` `2d`
+- Today, daily: `09:00` `22:30`
+- Absolute: `2026-05-06T09:00`
+
+Default timezone `Asia/Shanghai`, override with `reminders.timezone` in `config.json`.
+
+## Architecture
+
+| Layer | Module |
+| --- | --- |
+| Entry | `src/bin/cursor-claw.ts` |
+| Adapters | `src/adapters/telegram/` (grammy, implements `IMessenger`) |
+| Commands | `src/commands/` (parser + dispatcher + handlers) |
+| Orchestrator core | `src/core/orchestrator/` (`AgentOrchestrator` + `StreamRenderer` + busy-policy + `cursorSdkRuntime`) |
+| Workspace / session / access | `src/core/{workspace,session,access}/` |
+| Reminders / attachments | `src/core/{reminders,attachments}/` |
+| Persistence | `src/core/persist/jsonStore.ts` |
+| Config & logging | `src/config/`, `src/logger.ts` |
+| CLI tools | `src/tools/attach-image.ts`, `src/tools/attach-file.ts` |
+
+The two abstraction boundaries (`IMessenger`, `IAgentRuntime`) keep the orchestrator unaware of Telegram and the Cursor SDK; tests use `StubMessenger` + `StubAgentRuntime` to drive end-to-end flows.
+
+Full design rationale: [`docs/superpowers/specs/2026-05-05-cursor-claw-design.md`](./docs/superpowers/specs/2026-05-05-cursor-claw-design.md).
+
+## Testing
+
+```bash
+npm test            # 141+ unit & integration tests (vitest)
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint src tests
+```
+
+Manual smoke tests (require real API keys, real Telegram chat):
 
 ```bash
 export CURSOR_API_KEY="..."
-npx tsx tests/manual/sdk_smoke.ts
+npx tsx tests/manual/sdk_smoke.ts          # Cursor SDK only
+# tests/manual/m2-smoke.md                   # Full M2 e2e checklist
 ```
 
-## M2：入站图片 / 出站附件 / Reminders
+## Deployment
 
-M2 在 M1 文本对话基础上增加：
+`cursor-claw` is a long-running single process. Pick whichever supervisor matches your platform:
 
-- **入站图片**：Telegram 用户发图（含多图 album）→ agent 自动接收并分析
-- **出站附件**：agent 在 shell tool 中调 `claw-attach-image /tmp/x.png` 把文件回发给 Telegram
-- **Reminders**：`/remind add text 10m 喝水` 或 `/remind add prompt 09:00 看 BTC 价格`
+- **Linux** &mdash; `systemd` user unit (recommended)
+- **Linux / macOS / Windows** &mdash; `pm2` (Node-native cross-platform)
+- **macOS** &mdash; `launchd` user agent
+- **Windows** &mdash; NSSM (run Node service as Windows Service)
+- **Docker** &mdash; planned, not in this milestone (the process needs host filesystem + Cursor SDK access)
 
-### 安装 attach CLI
+Concrete unit files & step-by-step in **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**.
+
+## Roadmap
+
+- ✅ **M1** &mdash; end-to-end text chat, workspace switching, commands, streaming, cancel, allow-list, systemd-friendly exit
+- ✅ **M2** &mdash; bidirectional attachments, inbound images, reminders
+- 🚧 **M3** &mdash; WeChat adapter skeleton, Clawfox browser integration, MCP config hot-reload
+
+## Security
+
+A bot of this kind is essentially a **shell behind a messenger**. Treat it accordingly:
+
+- Keep `TELEGRAM_BOT_TOKEN` and `CURSOR_API_KEY` out of git. The repo's `.gitignore` already excludes `config.json` and `.claw/`. Use environment variables in production.
+- Always set `telegram.allowedUserIds` to **just your own Telegram user IDs**. Non-listed messages are silently dropped.
+- If your bot was discovered (`@yourbot` is searchable), turn off groups & make the bot private; or rotate the token.
+- Run as a **non-root** OS user. Don't give the bot more filesystem access than your projects need.
+- Treat Cursor SDK runs the same way you treat `bash` executed remotely &mdash; because that is what they are.
+
+## FAQ
+
+Common errors and what they mean: **[docs/FAQ.md](./docs/FAQ.md)**.
+
+A few highlights:
+
+- _"Local SDK agents require an explicit 'model'"_ &rarr; you upgraded `@cursor/sdk` past 1.0.x; `AgentOrchestrator` already passes the model on resume, but make sure your `config.json` has a valid `cursor.defaultModel`.
+- _"Telegram: 400 Bad Request: can't parse entities"_ &rarr; HTML mode tried to render a literal `<word>`. Usage messages now use `parseMode: "plain"`; if you see this from custom code, escape angle brackets or switch parse mode.
+- _"`claw-attach-image: command not found`"_ &rarr; you ran `npm install` but did not `npm link` or `npm i -g`; the agent's PATH does not see the local-only bin.
+
+## Contributing
+
+PRs and issues welcome. See **[.github/CONTRIBUTING.md](./.github/CONTRIBUTING.md)**.
+
+Quick loop:
 
 ```bash
-npm i -g cursor-claw   # 全局安装后 PATH 里有 claw-attach-image / claw-attach-file
+npm test           # red/green
+npm run typecheck  # type safety
+npm run lint       # style
 ```
 
-或者本地开发用 `npm link`。
-
-agent 在 workspace 根目录跑时会自动通过 `.claw/data-dir.txt` 找到 cursor-claw 主进程的 data 目录；如果失败，可以显式 `CLAW_DATA_DIR=/path/to/data` 注入。
-
-### Reminders 时间格式
-
-- 相对：`10m` `1h30m` `45s` `2d`
-- 当日：`09:00` `22:30`
-- 绝对：`2026-05-06T09:00`（用 T 分隔）
-
-时区默认 `Asia/Shanghai`，可在 `config.json` 的 `reminders.timezone` 覆盖。
-
-## 路线图
-
-- **M1** — 端到端文本对话、工作区切换、命令、流式渲染、cancel、白名单、systemd-friendly 退出
-- **M2（本里程碑）** — 双向附件、入站图片、reminders
-- **M3** — 微信适配器骨架、Clawfox 浏览器集成、MCP 配置热更
-
-详见 `docs/superpowers/specs/2026-05-05-cursor-claw-design.md`。
-
-## 安全
-
-bot 等同于把 shell 控制权交给消息平台。请：
-
-- 严格管理 `TELEGRAM_BOT_TOKEN` 与 `CURSOR_API_KEY`，绝不要 commit 到 git
-- 仅把白名单（`telegram.allowedUserIds`）设为你自己的 Telegram userId；非白名单消息将被静默忽略
-- 在公开 Telegram bot 名下使用时，请关闭 group 加入与隐私模式之外的功能
+Fix lint errors before opening a PR; the project follows a strict TDD approach (tests first).
 
 ## License
 
-MIT
+[MIT](./LICENSE) &copy; 2026 Jem Li
