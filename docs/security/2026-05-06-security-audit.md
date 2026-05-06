@@ -42,6 +42,8 @@
 | F-10 | Cursor agent 默认拥有完整 tool 权限，无白名单 | Medium | D4 | Open | - |
 | F-11 | `r.result` 字段被 logger 全文输出（路径泄露） | Low | D4 | Open | - |
 | F-12 | `JsonStore` / `AttachmentQueue` JSON.parse 后无 schema 校验 | Low | D5 | Open | - |
+| F-13 | `data/` 目录与文件未显式设置受限权限（默认 0755/0644） | Medium | D6 | Open | - |
+| F-14 | `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中任意 path | Medium | D6 | Open | - |
 
 ---
 
@@ -740,4 +742,131 @@ const store = new JsonStore("./data/reminders.json", DEFAULTS, ReminderFileSchem
 
 ## D6 · 文件系统与持久化
 
-> _T6 任务填写。_
+### 扫描清单与证据
+
+| 扫描项 | 工具 / 命令 | 结果 |
+|---|---|---|
+| 所有 fs 写入点 | grep `mkdir\|writeFile\|appendFile\|createWriteStream` | 5 处：`bin/cursor-claw.ts:24,41,43`（`dataDir` / `.claw` 标记 / data-dir.txt） / `tools/attachShared.ts:74,88`（pending dir / queue.jsonl append） / `attachments/AttachmentQueue.ts:27,28,62,68`（queue append + rewrite） / `persist/jsonStore.ts:58,60`（tmp + rename atomic） |
+| 显式权限设置 | grep `mode:\|chmod\|0o\d{3}` | **0 命中** → 所有 mkdir/writeFile 都依赖进程 umask（macOS / Linux 默认 022 → 0755 目录 / 0644 文件）。`data/` 含会话历史 / 附件原件 / chatId / userId，应当 0700 / 0600（见 F-13） |
+| 附件文件名 sanitize | 读 `tools/attachShared.ts:75-77` | **safe**：用 `basename(filePath)` 剥掉 source path 的目录部分 + ISO 时间戳前缀防重名 → 跨目录写入面 = 0 ✓ |
+| 临时文件清理 | 读 `JsonStore.cleanupTmp` + `AttachmentQueue.rewrite` | JsonStore 启动时清理上次崩溃残留 ✓；rewrite 用 tmp + rename atomic ✓ |
+| `.claw/data-dir.txt` 写入位置 | 读 `bin/cursor-claw.ts:35-47` | 写在 active workspace 根（owner 通过 `/ws add` 控制）；与 F-07（路径无白名单）联动 |
+| `config.json` 加载 / 写入 | 读 `config/loadConfig.ts` | 仅读取（`readFile + JSON.parse + zod.parse`）；**cursor-claw 不写 config.json**，权限由 owner 自己保证 |
+| `data/` cross-workspace 串扰 | 读 `AttachmentDispatcher.flushForCwd` | 按 entry.cwd 严格过滤 ✓；但 e.path 字段无边界校验（见 F-14） |
+
+### F-13 · `data/` 目录与文件未显式设置受限权限（默认 0755/0644）
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Medium** |
+| CWE | CWE-732（Incorrect Permission Assignment for Critical Resource） |
+| 领域 | D6 |
+| 位置 | `src/bin/cursor-claw.ts:24,41`（`mkdir(dataDir)` / `mkdir(markerDir)`）；`src/core/persist/jsonStore.ts:58,60`（`mkdir + writeFile`）；`src/core/attachments/AttachmentQueue.ts:27,28,62,68`；`src/tools/attachShared.ts:74,88` |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+```bash
+# 启动 cursor-claw 后查看权限
+cd /Users/liwei/cursor/cursor-claw && ls -la data/
+# drwxr-xr-x  ...  data/
+# -rw-r--r--  ...  data/reminders.json
+# -rw-r--r--  ...  data/attachments/queue.jsonl
+```
+
+`data/` 含：
+
+- 会话历史（`session.json`）：用户对话内容
+- 提醒文本 / prompt（`reminders.json`）：用户私人备忘
+- 附件原件（`data/attachments/pending/*`）：用户/agent 发送的图片、文件原文
+- chatId / userId（多个文件）：用户 Telegram 标识
+
+默认权限 `0755/0644` 意味着同主机其他用户可读所有这些数据。
+
+**影响**
+
+- 多用户主机（Mac / Linux 服务器，含 sudoers 但非 owner 的本地账户）下，data/ 内容对其他用户可读
+- 单用户笔记本场景下基本可接受，但仍属偏离最佳实践
+- 与 F-12（无 schema 校验）联动：其他用户不仅能读，还能写恶意 entry（如果文件 0666）
+
+**修复建议**
+
+在每次 `mkdir` / `writeFile` / `appendFile` 显式传 mode：
+
+```ts
+// 目录
+await mkdir(dataDir, { recursive: true, mode: 0o700 });
+
+// 文件
+await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
+await appendFile(queuePath, line, { encoding: "utf8", mode: 0o600 });
+```
+
+也可在 `bin/cursor-claw.ts` 启动时用 `process.umask(0o077)`（影响整个进程后续 fs 调用）。
+
+**修复成本**：S（< 30 分钟，含覆盖 5-6 处 + 启动测试）。
+
+### F-14 · `AttachmentDispatcher` unlink / readFile 信任 queue.jsonl 中的任意 path
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Medium** |
+| CWE | CWE-22（Path Traversal）+ CWE-73（External Control of File Name or Path） |
+| 领域 | D6 |
+| 位置 | `src/core/attachments/AttachmentDispatcher.ts:56`（`unlink(e.path)`）+ `src/core/attachments/AttachmentDispatcher.ts:78`（`readFile(e.path)`） |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+`tryDeliver` 与 `flushForCwd` 直接信任 queue.jsonl 中的 `e.path` 字段：
+
+```ts
+// flushForCwd 投递成功 / 放弃路径
+try { await unlink(e.path); } catch { /* ignore */ }
+
+// tryDeliver
+buf = await readFile(e.path);
+```
+
+正常路径下 `e.path` 是 `<dataDir>/attachments/pending/<isoTs>-<basename>`（attachShared.ts 写入）。但攻击场景：
+
+1. **prompt injection → agent 直接写 queue.jsonl**：忽略 attach CLI，让 agent 用 fs.appendFile 写一行 `{"cwd": "<active-cwd>", "path": "/Users/me/.ssh/id_rsa", ...}` → 下次 dispatcher flush 时把私钥外发给用户（chatId 是攻击者）+ unlink 私钥
+2. **同主机其他进程篡改 queue.jsonl**：与 F-13 联动，0644 文件易被读但不易被改；若误为 0666 则其他用户可注入
+
+利用价值（在前置条件成立时）：
+
+- 任意主机文件外发到 chatId（已被允许的用户）
+- 任意主机文件被 unlink 删除（即使 cursor-claw 进程权限不足以读，也可能足以 unlink）
+
+**影响**
+
+- High 级别的 attack capability，但需先攻陷主机 write 权限到 queue.jsonl
+- 是 F-09（prompt injection）+ F-10（agent 全 tool）的放大点：agent 可能被诱导直接写 queue.jsonl 而不是走 attach CLI
+
+**修复建议**
+
+在 `tryDeliver` 与 `flushForCwd` 中加 path 边界校验：
+
+```ts
+import { resolve, relative } from "node:path";
+
+function isWithin(parent: string, candidate: string): boolean {
+  const rel = relative(resolve(parent), resolve(candidate));
+  return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+// 调用前
+const pendingDir = join(this.opts.dataDir, "attachments", "pending");
+if (!isWithin(pendingDir, e.path)) {
+  logger.error({ path: e.path }, "queue entry path 越界，丢弃");
+  return "drop";
+}
+```
+
+`AttachmentDispatcherOptions` 加 `dataDir` 字段；调用方传入。
+
+**修复成本**：S（< 30 分钟），含 unit 测试覆盖越界路径会被 drop。
+
+
