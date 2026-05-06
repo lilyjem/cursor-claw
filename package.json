@@ -7,7 +7,9 @@
     "node": ">=20.10.0"
   },
   "bin": {
-    "cursor-claw": "./dist/bin/cursor-claw.js"
+    "cursor-claw": "./dist/bin/cursor-claw.js",
+    "claw-attach-image": "./dist/tools/attach-image.js",
+    "claw-attach-file": "./dist/tools/attach-file.js"
   },
   "scripts": {
     "dev": "tsx watch src/bin/cursor-claw.ts",
