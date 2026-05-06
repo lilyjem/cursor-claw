@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clawfox browser integration
 - MCP config hot-reload
 
+## [0.1.2] &mdash; 2026-05-06
+
+### Fixed
+- Fix packaged `dist/bin/cursor-claw.js` double shebang output. `tsup` already injects a bin shebang through `banner`, so the source entry must not include its own shebang. Adds a regression test plus `node --check` release smoke coverage.
+
 ## [0.1.1] &mdash; 2026-05-06
 
 ### Documentation
