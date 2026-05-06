@@ -133,6 +133,11 @@ async function main(): Promise<void> {
   // 写 .claw 标记（在 messenger.start() 之前；写不成不阻塞）
   const activeWs = registry.getActive();
   if (activeWs) await writeClawMarker(activeWs.path);
+  // F-07：/ws add 默认只允许当前 cwd 与既有 workspace 树，用户可用 config.workspaces.allowedRoots 扩展。
+  const workspaceAllowedRoots =
+    cfg.workspaces.allowedRoots.length > 0
+      ? cfg.workspaces.allowedRoots
+      : [process.cwd(), ...registry.list().map((w) => w.path)];
 
   messenger.on("text", (msg) => {
     // 不论是否被白名单接受都先记一行 trace，方便用户首次配置时排查
@@ -281,6 +286,7 @@ async function main(): Promise<void> {
           orchestrator,
           scheduler,
           reminderQuota,
+          workspaceAllowedRoots,
           reminderConfig: {
             tz: cfg.reminders.timezone,
             maxAheadDays: cfg.reminders.maxAheadDays,

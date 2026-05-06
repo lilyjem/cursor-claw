@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { CommandContext } from "../dispatch.js";
 import { WorkspaceError } from "../../core/workspace/WorkspaceRegistry.js";
+import { isPathWithinAllowedRoots } from "../../core/workspace/pathPolicy.js";
 
 // /ws 命令家族：
 //   /ws list                        显示所有工作区，标记当前为活跃
@@ -73,6 +74,19 @@ export async function handleWs(
       } catch {
         await ctx.messenger.sendText(ctx.chatId, "路径不存在");
         return;
+      }
+      if (ctx.workspaceAllowedRoots && ctx.workspaceAllowedRoots.length > 0) {
+        const allowed = await isPathWithinAllowedRoots(
+          path,
+          ctx.workspaceAllowedRoots,
+        );
+        if (!allowed) {
+          await ctx.messenger.sendText(
+            ctx.chatId,
+            "路径不在允许的工作区根目录内",
+          );
+          return;
+        }
       }
       try {
         ctx.registry.add(name, path);

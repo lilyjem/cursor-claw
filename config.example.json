@@ -10,7 +10,7 @@
     "settingSources": ["project", "user"],
     "sandboxOptions": { "enabled": true }
   },
-  "workspaces": { "autoRegisterCwd": true },
+  "workspaces": { "autoRegisterCwd": true, "allowedRoots": [] },
   "paths": { "dataDir": "./data" },
   "logging": { "level": "info" },
   "reminders": { "timezone": "Asia/Shanghai", "maxAheadDays": 30 },

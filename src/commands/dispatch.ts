@@ -26,6 +26,8 @@ export interface CommandContext {
   scheduler?: ReminderScheduler;
   reminderQuota?: ReminderQuota;
   reminderConfig?: { tz: string; maxAheadDays: number };
+  // F-07：/ws add 仅允许这些根目录内的路径；undefined/[] 表示 handler 侧不额外限制
+  workspaceAllowedRoots?: string[];
 }
 
 export async function dispatchCommand(
