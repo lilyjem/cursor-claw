@@ -44,7 +44,8 @@
     "test:watch": "vitest",
     "lint": "eslint src tests",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "audit:security": "node scripts/audit-security.mjs"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.12",
