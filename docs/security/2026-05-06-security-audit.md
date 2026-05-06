@@ -31,7 +31,7 @@
 | ID | 标题 | 严重级 | 领域 | 状态 | 修复 PR |
 |---|---|---|---|---|---|
 | F-01 | Telegram 文件下载 URL 内含 botToken，错误信息泄露面 | Medium | D1+D4 | Open | - |
-| F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | D2 | Open | - |
+| F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | D2 | **Accepted-Risk** | - |
 | F-03 | tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越） | Medium | D2 | Open | - |
 | F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | Open | - |
 | F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | D3 | **Fixed** | [#1](https://github.com/lilyjem/cursor-claw/pull/1) |
@@ -170,8 +170,31 @@ await messenger.sendText(chatId, `处理图片失败：${(e as Error).message}`.
 | CWE | CWE-444（HTTP Request Smuggling）/ CWE-93（CRLF Injection）/ CWE-400（Resource Exhaustion） |
 | 领域 | D2 |
 | 位置 | `package-lock.json` → `undici` (≤ 6.23.0) 透传自 `@cursor/sdk` → `@connectrpc/connect-node` |
-| 状态 | Open |
+| 状态 | **Accepted-Risk** |
 | 修复 PR | - |
+
+**Accepted-Risk 理由（2026-05-06）**：
+
+5 个 GHSA 在本项目运行时调用模式下的实际可触发性：
+
+| GHSA | 项目里的暴露 |
+|---|---|
+| GHSA-2mjp-6q6p-2qxm（HTTP Smuggling） | **不可触发** — cursor-claw 不作为 HTTP 服务器 / 反代，无 ingress 流量 |
+| GHSA-vrm6-8vpv-qv8q（WebSocket permessage-deflate） | **不可触发** — 不使用 WebSocket |
+| GHSA-v9p9-hfj2-hcw8（WebSocket Unhandled Exception） | **不可触发** — 同上 |
+| GHSA-4992-7rv2-5pvq（CRLF in `upgrade` option） | **不可触发** — fetch 调用不传 `upgrade` 选项 |
+| GHSA-g9mf-h72j-4rw9（unbounded gzip decompression） | **理论可触发但需 MITM Telegram CDN**：MITM 已被 TLS 阻挡；Telegram CDN 由 Telegram 平台控制，符合威胁模型 §5 "Telegram 平台可信" 信任假设 |
+
+强制 overrides 升级 undici 的代价：
+
+- `@connectrpc/connect-node` 锁定 undici 版本范围；强制 overrides 可能与其内部假设冲突，需要回归全量 SDK 调用路径
+- 当前 `@cursor/sdk@1.0.12` 是 npm 上最新版，**等待上游 SDK 升级 `@connectrpc/connect-node`** 是更稳妥路径
+
+后续动作：
+
+- 在 GitHub 仓库启用 Dependabot Security Updates（已默认 public 仓库启用）
+- 持续监控 @cursor/sdk 新版本，在 SDK 升级 connectrpc 后立刻重跑 npm audit 并升级
+- 若未来 1 个月内上游未升级，重新评估是否手动 overrides
 
 **漏洞清单（5 个 GHSA）**
 
