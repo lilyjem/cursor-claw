@@ -10,6 +10,7 @@ import type { AttachmentDispatcher } from "../attachments/AttachmentDispatcher.j
 import type { RateLimiter } from "../rateLimit/RateLimiter.js";
 import { RateLimitedError } from "../rateLimit/errors.js";
 import { rateLimitedAgentCreateText } from "../../util/rateLimitMessages.js";
+import { wrapUserPrompt } from "./promptEnvelope.js";
 
 // HTML 转义：错误文本里可能含 < > & 之类，直接拼到 HTML parse_mode 会破坏标签
 function escapeHtml(s: string): string {
@@ -176,7 +177,7 @@ export class AgentOrchestrator {
 
     let run: RuntimeRun;
     try {
-      run = await entry.agent.send(input.text, {
+      run = await entry.agent.send(wrapUserPrompt(input.text), {
         force: action === "force-replace",
         images: input.images,
       });
