@@ -56,4 +56,30 @@ describe("JsonStore", () => {
     await store.update((cur) => ({ ...cur, x: cur.x + 10 }));
     expect((await store.read()).x).toBe(11);
   });
+
+  // F-13：JsonStore 落盘文件应限制为 0600（仅 owner 可读写）
+  // 跨主机的 dataDir 经常含会话历史 / reminder 内容 / 用户标识，
+  // 默认 0644 在多用户主机上可被同主机其他用户读取。
+  it.skipIf(process.platform === "win32")(
+    "F-13: write 后文件 mode 必须是 0o600（仅 owner 读写）",
+    async () => {
+      const target = join(dir, "perm.json");
+      const store = new JsonStore<Foo>(target, { x: 0 });
+      await store.write({ x: 1 });
+      const st = await stat(target);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  // F-13：父目录若被 JsonStore 创建，权限应是 0o700
+  it.skipIf(process.platform === "win32")(
+    "F-13: 父目录被 mkdir 时 mode 必须是 0o700",
+    async () => {
+      const sub = join(dir, "subdir");
+      const store = new JsonStore<Foo>(join(sub, "perm.json"), { x: 0 });
+      await store.write({ x: 1 });
+      const st = await stat(sub);
+      expect(st.mode & 0o777).toBe(0o700);
+    },
+  );
 });

@@ -1,6 +1,13 @@
 // CLI 公共逻辑：解析 argv → 复制文件到 pending → append 到 queue.jsonl。
 // 故意不依赖 logger / config / zod，保持冷启动快（agent 端被频繁短任务调用）。
-import { mkdir, copyFile, stat, readFile, appendFile } from "node:fs/promises";
+import {
+  mkdir,
+  copyFile,
+  stat,
+  readFile,
+  appendFile,
+  chmod,
+} from "node:fs/promises";
 import { resolve, dirname, basename, join } from "node:path";
 
 export type AttachKind = "image" | "file";
@@ -71,11 +78,16 @@ export async function runAttach(
   if (!st.isFile()) throw new Error(`not a file: ${filePath}`);
 
   const pendingDir = join(dataDir, "attachments", "pending");
-  await mkdir(pendingDir, { recursive: true });
+  // F-13：pending 目录限定 0700；pending 内复制出来的文件 chmod 0600
+  // —— copyFile 会继承 source mode，可能宽于 0600，故显式 chmod。
+  await mkdir(pendingDir, { recursive: true, mode: 0o700 });
   // 用 ISO 时间戳（冒号、点替换为连字符）+ 原 basename 防重名
   const isoTs = new Date().toISOString().replace(/[:.]/g, "-");
   const destPath = join(pendingDir, `${isoTs}-${basename(filePath)}`);
   await copyFile(filePath, destPath);
+  // F-13：copyFile 之后立即收紧权限到 0o600。Windows 上 chmod 是 best-effort，
+  // 我们仍调用以与其他平台保持代码路径一致；测试侧已 skip Windows。
+  await chmod(destPath, 0o600);
 
   const entry = {
     cwd: process.cwd(),
@@ -85,7 +97,11 @@ export async function runAttach(
     queuedAt: Date.now(),
   };
   const queuePath = join(dataDir, "attachments", "queue.jsonl");
-  await appendFile(queuePath, JSON.stringify(entry) + "\n", "utf8");
+  // F-13：queue.jsonl 限定 0o600
+  await appendFile(queuePath, JSON.stringify(entry) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 
   // 给 agent 一个能 grep 的成功标志
   process.stdout.write(`queued: ${destPath}\n`);
