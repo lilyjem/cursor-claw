@@ -79,8 +79,11 @@ async function main(): Promise<void> {
     runtime,
     registry,
     session,
-    // 真实 Telegram 比单测要更慢节流；800ms 是 RPS 限制内的稳健值
-    streamOptions: { throttleMs: 800, maxLen: 3500 },
+    // 真实 Telegram 比单测要更慢节流；800ms 是 RPS 限制内的稳健值。
+    // M2 polish：textBuffer 改为 raw markdown 后 compose 时整体 markdownToHtml，
+    // HTML 转换会让长度增长（** 配对净 +1 / < 转 &lt; 净 +3 等），把 maxLen 从 3500 调到 3000
+    // 给 HTML 增长留 ~30% 余量，避免触碰 Telegram 4096 单条上限。
+    streamOptions: { throttleMs: 800, maxLen: 3000 },
     defaultModel: cfg.cursor.defaultModel,
     attachmentDispatcher: dispatcher,
   });
