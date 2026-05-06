@@ -7,6 +7,9 @@ import { summarizeTool } from "./toolSummary.js";
 import { decideBusyAction, type RunStatus } from "./busyPolicy.js";
 import type { IAgentRuntime, RuntimeAgent, RuntimeRun } from "./runtime.js";
 import type { AttachmentDispatcher } from "../attachments/AttachmentDispatcher.js";
+import type { RateLimiter } from "../rateLimit/RateLimiter.js";
+import { RateLimitedError } from "../rateLimit/errors.js";
+import { rateLimitedAgentCreateText } from "../../util/rateLimitMessages.js";
 
 // HTML 转义：错误文本里可能含 < > & 之类，直接拼到 HTML parse_mode 会破坏标签
 function escapeHtml(s: string): string {
@@ -27,6 +30,8 @@ export interface OrchestratorDeps {
   // schema 已声明此字段，但之前 orchestrator 与 cursorSdkRuntime 都没接，
   // 等同于"配置承诺没兑现"。修复后必须 create + resume 都透传。
   sandboxOptions?: { enabled: boolean };
+  // F-06：cached miss 进入 Agent.create / resume 前做单用户限速；不注入则跳过（便于单测）
+  rateLimiter?: RateLimiter;
 }
 
 interface PoolEntry {
@@ -52,6 +57,7 @@ export class AgentOrchestrator {
     chatId: string;
     text: string;
     force: boolean;
+    userId: number;
   }): Promise<void> {
     await this.runInternal(input);
   }
@@ -62,6 +68,7 @@ export class AgentOrchestrator {
     text: string;
     force: boolean;
     images: Array<{ data: string; mimeType: string }>;
+    userId: number;
   }): Promise<void> {
     await this.runInternal(input);
   }
@@ -83,6 +90,7 @@ export class AgentOrchestrator {
     text?: string;
     prompt?: string;
     workspaceId?: string;
+    userId: number;
   }): Promise<{ delivered: boolean; busy?: boolean }> {
     if (input.kind === "text") {
       const text = input.text ?? "";
@@ -96,6 +104,7 @@ export class AgentOrchestrator {
       text: input.prompt ?? "",
       force: false,
       skipBusyMsg: true,
+      userId: input.userId,
     });
     return { delivered: ok, busy: !ok };
   }
@@ -112,6 +121,7 @@ export class AgentOrchestrator {
     images?: Array<{ data: string; mimeType: string }>;
     // M2：reminder 走 prompt 路径时让调用方自行处理 busy 通知
     skipBusyMsg?: boolean;
+    userId: number;
   }): Promise<boolean> {
     const ws = this.deps.registry.getActive();
     if (!ws) {
@@ -123,7 +133,24 @@ export class AgentOrchestrator {
     }
     const wsId = ws.name;
 
-    const entry = await this.ensureAgent(wsId, ws.path);
+    let entry: PoolEntry;
+    try {
+      entry = await this.ensureAgent(wsId, ws.path, input.userId);
+    } catch (e) {
+      if (e instanceof RateLimitedError) {
+        logger.warn(
+          { userId: input.userId, key: e.key, retryMs: e.retryAfterMs },
+          "rate limited",
+        );
+        await this.deps.messenger.sendText(
+          input.chatId,
+          rateLimitedAgentCreateText(e.retryAfterMs),
+          { parseMode: "plain" },
+        );
+        return false;
+      }
+      throw e;
+    }
     const action = decideBusyAction({
       activeRunStatus: entry.activeRun?.status as RunStatus | undefined,
       force: input.force,
@@ -255,9 +282,21 @@ export class AgentOrchestrator {
   }
 
   // 懒加载 agent：先看 SessionStore 有没有 agentId 用 resume；没有则 create
-  private async ensureAgent(workspaceId: string, cwd: string): Promise<PoolEntry> {
+  private async ensureAgent(
+    workspaceId: string,
+    cwd: string,
+    userId: number,
+  ): Promise<PoolEntry> {
     const cached = this.pool.get(workspaceId);
     if (cached) return cached;
+
+    // F-06：只在 cached miss 时消耗 agentCreate token，复用已有 agent 不计入限速。
+    if (this.deps.rateLimiter) {
+      const r = this.deps.rateLimiter.check(userId, "agentCreate");
+      if (!r.allowed) {
+        throw new RateLimitedError("agentCreate", r.retryAfterMs);
+      }
+    }
 
     const sess = this.deps.session.get(workspaceId);
     let agent: RuntimeAgent;

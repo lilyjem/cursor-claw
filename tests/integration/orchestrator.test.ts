@@ -38,7 +38,7 @@ async function makeOrchestrator(extra?: {
 describe("AgentOrchestrator", () => {
   it("text → 创建 agent → 流式渲染 assistant 文本到 messenger", async () => {
     const { orch, messenger, runtime } = await makeOrchestrator();
-    const run = orch.runPrompt({ chatId: "c1", text: "hello", force: false });
+    const run = orch.runPrompt({ chatId: "c1", text: "hello", force: false, userId: 0 });
     expect(runtime.created.length).toBe(1);
     const agent = runtime.agents[0]!;
     // 等 send 被调用一次，再注入剧本
@@ -58,8 +58,8 @@ describe("AgentOrchestrator", () => {
 
   it("第二次 send 复用同一个 agentId", async () => {
     const { orch, runtime, session } = await makeOrchestrator();
-    await orch.runPrompt({ chatId: "c1", text: "one", force: false });
-    await orch.runPrompt({ chatId: "c1", text: "two", force: false });
+    await orch.runPrompt({ chatId: "c1", text: "one", force: false, userId: 0 });
+    await orch.runPrompt({ chatId: "c1", text: "two", force: false, userId: 0 });
     expect(runtime.created.length).toBe(1);
     expect(session.get("default")?.agentId).toBe(runtime.agents[0]!.agentId);
   });
@@ -80,7 +80,7 @@ describe("AgentOrchestrator", () => {
       ],
     });
 
-    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false, userId: 0 });
     const agent = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent.currentRun);
     stub.setScript([{ type: "assistant", text: "ok" }]);
@@ -101,11 +101,11 @@ describe("AgentOrchestrator", () => {
 
   it("活跃 run 时再发文本（非 force）→ 拒绝并提示", async () => {
     const { orch, messenger, runtime } = await makeOrchestrator();
-    const p1 = orch.runPrompt({ chatId: "c1", text: "long task", force: false });
+    const p1 = orch.runPrompt({ chatId: "c1", text: "long task", force: false, userId: 0 });
     const agent0 = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent0.currentRun);
     stub.setScript([{ type: "assistant", text: "..." }]);
-    const p2 = orch.runPrompt({ chatId: "c1", text: "second", force: false });
+    const p2 = orch.runPrompt({ chatId: "c1", text: "second", force: false, userId: 0 });
     await Promise.all([p1, p2]);
     const sends = messenger.calls.filter((c) => c.kind === "sendText");
     expect(
@@ -115,7 +115,7 @@ describe("AgentOrchestrator", () => {
 
   it("cancel 把 status 置 cancelled 并在主消息追加 (已取消)", async () => {
     const { orch, messenger, runtime } = await makeOrchestrator();
-    const p = orch.runPrompt({ chatId: "c1", text: "long", force: false });
+    const p = orch.runPrompt({ chatId: "c1", text: "long", force: false, userId: 0 });
     const agent0 = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent0.currentRun);
     stub.setScript([{ type: "assistant", text: "before" }]);
@@ -136,7 +136,7 @@ describe("AgentOrchestrator", () => {
     const { orch, runtime } = await makeOrchestrator({
       sandboxOptions: { enabled: true },
     });
-    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false, userId: 0 });
     const agent0 = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent0.currentRun);
     stub.setScript([{ type: "assistant", text: "ok" }]);
@@ -156,7 +156,7 @@ describe("AgentOrchestrator", () => {
       model: "gpt-5.3-codex",
       modelParams: [],
     });
-    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false, userId: 0 });
     const agent0 = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent0.currentRun);
     stub.setScript([{ type: "assistant", text: "ok" }]);
@@ -171,7 +171,7 @@ describe("AgentOrchestrator", () => {
     // 不传 sandboxOptions → orchestrator 不应自己造默认值，由配置层负责默认。
     // 这条契约让 schema 默认变更（如 enabled: true）能集中在一个位置审计。
     const { orch, runtime } = await makeOrchestrator(); // 无 sandboxOptions
-    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false, userId: 0 });
     const agent0 = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent0.currentRun);
     stub.setScript([{ type: "assistant", text: "ok" }]);
@@ -182,7 +182,7 @@ describe("AgentOrchestrator", () => {
 
   it("tool_call 在状态行可视化", async () => {
     const { orch, messenger, runtime } = await makeOrchestrator();
-    const p = orch.runPrompt({ chatId: "c1", text: "task", force: false });
+    const p = orch.runPrompt({ chatId: "c1", text: "task", force: false, userId: 0 });
     const agent0 = await waitFor(() => runtime.agents[0]);
     const stub = await waitFor(() => agent0.currentRun);
     stub.setScript([
