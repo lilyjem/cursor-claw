@@ -1,36 +1,37 @@
 import { describe, it, expect } from "vitest";
 import { sanitizeForOutput } from "../../src/util/sanitize.js";
 
-// F-01 / F-11 的深度防御工具：在 logger 输出 + 用户端 echo 之前
-// 对字符串内容做正则脱敏，覆盖以下敏感形态：
+// 测试中所有 "token" / "key" 形态都是**合成**值，不与任何真实 Telegram bot
+// 或 Cursor API key 的位字段对应。我们只关心正则形态匹配，不关心数值。
 //
-// 1. Telegram 文件下载 URL：
-//    https://api.telegram.org/file/bot<token>/<file_path>
-//    其中 botToken 形如 "12345:AAAAAAAAAAA..." 的合规字符串。
-//    必须把 bot<token>/ 整段替换为 "bot***/"，避免 token 落地日志或 echo 给用户。
+// 合成 token：bot<digits>:<base58-ish>，长度 ≥ 20。
+// 合成 key  ：crsr_<hex-ish>，长度 ≥ 16。
 //
-// 2. Cursor API key 前缀 crsr_<hex>：64 字符 hex（公开文档可见格式）。
-//    必须替换为 "crsr_***"。
-//
-// 3. 普通字符串：必须保持不变（不能误伤 trace 信息）。
+// 历史背景：v0.1.0 安全审查首版的本测试文件曾误把真实 token 写进 fixture，
+// 已在后续 commit 替换为合成值。如果你回看 git 历史看到形如"真"的字符串，
+// 请优先 revoke / rotate 对应凭据，而不是依赖历史值做任何还原。
+const SYNTHETIC_BOT_TOKEN = "0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00000";
+const SYNTHETIC_BOT_TOKEN_FRAGMENT = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00000";
+const SYNTHETIC_CURSOR_KEY =
+  "crsr_0000111122223333444455556666777788889999aaaabbbbccccddddeeee";
+const SYNTHETIC_CURSOR_KEY_FRAGMENT = "0000111122223333";
+
 describe("sanitizeForOutput (F-01 / F-11)", () => {
   // --- F-01 主线 ---
 
   it("替换 Telegram 文件下载 URL 中的 botToken：bot<token>/...", () => {
-    const input =
-      "fetch failed: https://api.telegram.org/file/bot0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00000/photos/file_1.jpg";
+    const input = `fetch failed: https://api.telegram.org/file/bot${SYNTHETIC_BOT_TOKEN}/photos/file_1.jpg`;
     const out = sanitizeForOutput(input);
-    expect(out).not.toContain("0000000000:AAAAAAAAAAAA");
-    expect(out).not.toContain("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00000");
+    expect(out).not.toContain(SYNTHETIC_BOT_TOKEN);
+    expect(out).not.toContain(SYNTHETIC_BOT_TOKEN_FRAGMENT);
     expect(out).toContain("bot***/");
     expect(out).toContain("https://api.telegram.org/file/");
   });
 
   it("替换 botToken 即使其后接 path（无斜杠分隔）", () => {
-    const input =
-      "request to https://api.telegram.org/file/bot0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00000/abc.jpg failed";
+    const input = `request to https://api.telegram.org/file/bot${SYNTHETIC_BOT_TOKEN}/abc.jpg failed`;
     const out = sanitizeForOutput(input);
-    expect(out).not.toContain("0000000000:");
+    expect(out).not.toContain(SYNTHETIC_BOT_TOKEN);
     expect(out).toContain("bot***/");
   });
 
@@ -42,18 +43,17 @@ describe("sanitizeForOutput (F-01 / F-11)", () => {
   // --- F-11 联动：crsr_ key ---
 
   it("替换 Cursor API key crsr_<hex>", () => {
-    const input =
-      "config dump: cursor.apiKey=crsr_0000111122223333444455556666777788889999aaaabbbbccccddddeeee";
+    const input = `config dump: cursor.apiKey=${SYNTHETIC_CURSOR_KEY}`;
     const out = sanitizeForOutput(input);
-    expect(out).not.toContain("00001111");
+    expect(out).not.toContain(SYNTHETIC_CURSOR_KEY);
+    expect(out).not.toContain(SYNTHETIC_CURSOR_KEY_FRAGMENT);
     expect(out).toContain("crsr_***");
   });
 
   it("crsr_ 出现在路径中也要替换（防完整 URL 场景）", () => {
-    const input =
-      "see https://example.com/api?key=crsr_abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    const input = `see https://example.com/api?key=${SYNTHETIC_CURSOR_KEY}`;
     const out = sanitizeForOutput(input);
-    expect(out).not.toContain("crsr_abcdef");
+    expect(out).not.toContain(SYNTHETIC_CURSOR_KEY);
     expect(out).toContain("crsr_***");
   });
 
