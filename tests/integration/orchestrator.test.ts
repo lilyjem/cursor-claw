@@ -13,7 +13,9 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function makeOrchestrator() {
+async function makeOrchestrator(extra?: {
+  sandboxOptions?: { enabled: boolean };
+}) {
   dir = await mkdtemp(join(tmpdir(), "orch-"));
   const registry = new WorkspaceRegistry(join(dir, "workspaces.json"));
   await registry.init({ autoRegisterCwd: true, cwd: dir });
@@ -28,6 +30,7 @@ async function makeOrchestrator() {
     session,
     streamOptions: { throttleMs: 10, maxLen: 1000 },
     defaultModel: { id: "auto", params: [] },
+    sandboxOptions: extra?.sandboxOptions,
   });
   return { orch, messenger, runtime, registry, session };
 }
@@ -123,6 +126,58 @@ describe("AgentOrchestrator", () => {
       .find((c) => c.kind === "editText");
     const txt = lastEdit && lastEdit.kind === "editText" ? lastEdit.text : "";
     expect(txt).toMatch(/已取消/);
+  });
+
+  // F-10：Cursor SDK 沙箱 / tool 限制
+  // 当前 schema 已声明 cursor.sandboxOptions 字段，但 orchestrator → runtime 这条管线
+  // 之前没把它透传到 SDK Agent.create / Agent.resume —— 等同于"配置承诺没兑现"。
+  // 修复后 deps.sandboxOptions 必须沿 runtime.create / runtime.resume 一路传到 SDK。
+  it("F-10: deps.sandboxOptions 透传到 runtime.create", async () => {
+    const { orch, runtime } = await makeOrchestrator({
+      sandboxOptions: { enabled: true },
+    });
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const agent0 = await waitFor(() => runtime.agents[0]);
+    const stub = await waitFor(() => agent0.currentRun);
+    stub.setScript([{ type: "assistant", text: "ok" }]);
+    await p;
+
+    expect(runtime.created.length).toBe(1);
+    expect(runtime.created[0]?.sandboxOptions).toEqual({ enabled: true });
+  });
+
+  it("F-10: deps.sandboxOptions 也透传到 runtime.resume", async () => {
+    const { orch, runtime, session } = await makeOrchestrator({
+      sandboxOptions: { enabled: true },
+    });
+    // 模拟"重启前已有 session 持久化" → 走 resume 路径
+    await session.set("default", {
+      agentId: "agent-existing-y",
+      model: "gpt-5.3-codex",
+      modelParams: [],
+    });
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const agent0 = await waitFor(() => runtime.agents[0]);
+    const stub = await waitFor(() => agent0.currentRun);
+    stub.setScript([{ type: "assistant", text: "ok" }]);
+    await p;
+
+    expect(runtime.created.length).toBe(0);
+    expect(runtime.resumed.length).toBe(1);
+    expect(runtime.resumed[0]?.opts.sandboxOptions).toEqual({ enabled: true });
+  });
+
+  it("F-10: 未传 sandboxOptions 时 runtime.create 收到的 sandboxOptions 为 undefined（向后兼容）", async () => {
+    // 不传 sandboxOptions → orchestrator 不应自己造默认值，由配置层负责默认。
+    // 这条契约让 schema 默认变更（如 enabled: true）能集中在一个位置审计。
+    const { orch, runtime } = await makeOrchestrator(); // 无 sandboxOptions
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const agent0 = await waitFor(() => runtime.agents[0]);
+    const stub = await waitFor(() => agent0.currentRun);
+    stub.setScript([{ type: "assistant", text: "ok" }]);
+    await p;
+
+    expect(runtime.created[0]?.sandboxOptions).toBeUndefined();
   });
 
   it("tool_call 在状态行可视化", async () => {

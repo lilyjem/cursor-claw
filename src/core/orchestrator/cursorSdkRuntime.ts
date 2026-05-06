@@ -35,6 +35,9 @@ export class CursorSdkRuntime implements IAgentRuntime {
       local: {
         cwd: opts.cwd,
         settingSources: opts.settingSources ?? ["project", "user"],
+        // F-10：透传 sandboxOptions 到 SDK；具体沙箱行为由 sandbox.json 控制。
+        // 仅当上层显式传值时才设置，避免覆盖 SDK 自带默认。
+        ...(opts.sandboxOptions ? { sandboxOptions: opts.sandboxOptions } : {}),
       },
       mcpServers: opts.mcpServers as
         | Parameters<typeof Agent.create>[0]["mcpServers"]
@@ -52,6 +55,8 @@ export class CursorSdkRuntime implements IAgentRuntime {
       local: {
         cwd: opts.cwd,
         settingSources: opts.settingSources ?? ["project", "user"],
+        // F-10：见 create 同一字段注释
+        ...(opts.sandboxOptions ? { sandboxOptions: opts.sandboxOptions } : {}),
       },
     });
     return new SdkAgentWrapper(sdk);

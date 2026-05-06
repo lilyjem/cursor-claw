@@ -23,6 +23,10 @@ export interface OrchestratorDeps {
   // M2: 注入后会在每次 runInternal 末尾发当前 cwd 的 attach 队列；不注入则跳过。
   // 设为可选是为了让单测可以独立验证 orchestrator 行为，不受 dispatcher 影响。
   attachmentDispatcher?: AttachmentDispatcher;
+  // F-10：把 cfg.cursor.sandboxOptions 沿管线一路传到 runtime.create / runtime.resume。
+  // schema 已声明此字段，但之前 orchestrator 与 cursorSdkRuntime 都没接，
+  // 等同于"配置承诺没兑现"。修复后必须 create + resume 都透传。
+  sandboxOptions?: { enabled: boolean };
 }
 
 interface PoolEntry {
@@ -267,11 +271,13 @@ export class AgentOrchestrator {
       agent = await this.deps.runtime.resume(sess.agentId, {
         cwd,
         model: resumedModel,
+        sandboxOptions: this.deps.sandboxOptions,
       });
     } else {
       agent = await this.deps.runtime.create({
         cwd,
         model: this.deps.defaultModel,
+        sandboxOptions: this.deps.sandboxOptions,
       });
       await this.deps.session.set(workspaceId, {
         agentId: agent.agentId,

@@ -22,7 +22,15 @@ export const ConfigSchema = z.object({
     settingSources: z
       .array(z.enum(["project", "user", "team", "mdm", "plugins", "all"]))
       .default(["project", "user"]),
-    sandboxOptions: z.object({ enabled: z.boolean() }).optional(),
+    // F-10：默认开启 Cursor SDK 沙箱（CWE-269 加固）。
+    // 沙箱具体规则由 ~/.cursor/sandbox.json 或 <workspace>/.cursor/sandbox.json 控制：
+    //   - type: "workspace_readwrite"（默认）/ "workspace_readonly" / "insecure_none"
+    //   - networkPolicy: 网络白/黑名单（拦默认 SSRF / cloud metadata）
+    //   - additionalReadonlyPaths / additionalReadwritePaths
+    // 用户若需关闭（如运行 npm install / 跨工作区写文件等），可在 config.json 设为 false。
+    sandboxOptions: z
+      .object({ enabled: z.boolean().default(true) })
+      .default({ enabled: true }),
   }),
   workspaces: z
     .object({ autoRegisterCwd: z.boolean().default(true) })
