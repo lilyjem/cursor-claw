@@ -64,13 +64,15 @@ export const ConfigSchema = z.object({
       maxImagesPerPrompt: z.number().int().min(1).max(16).default(8),
       defaultPromptSingle: z.string().default("请分析这张图片"),
       defaultPromptMulti: z.string().default("请分析这些图片"),
-      mediaGroupDebounceMs: z.number().int().min(50).max(2000).default(200),
+      // 800ms 给余量：grammy 接续 update 通常 50-200ms，但偶尔有 300-500ms 抖动；
+      // 200ms 偏紧（spec 也注明"太小会拆开 album"），800ms 用户感知延迟仍可接受。
+      mediaGroupDebounceMs: z.number().int().min(50).max(2000).default(800),
     })
     .default({
       maxImagesPerPrompt: 8,
       defaultPromptSingle: "请分析这张图片",
       defaultPromptMulti: "请分析这些图片",
-      mediaGroupDebounceMs: 200,
+      mediaGroupDebounceMs: 800,
     }),
 });
 

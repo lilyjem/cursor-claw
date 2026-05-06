@@ -31,7 +31,9 @@ export async function handleWs(
     case "use": {
       const name = args[1];
       if (!name) {
-        await ctx.messenger.sendText(ctx.chatId, "用法：/ws use <name>");
+        await ctx.messenger.sendText(ctx.chatId, "用法：/ws use <name>", {
+          parseMode: "plain",
+        });
         return;
       }
       try {
@@ -54,6 +56,7 @@ export async function handleWs(
         await ctx.messenger.sendText(
           ctx.chatId,
           "用法：/ws add <name> <abs-path>",
+          { parseMode: "plain" },
         );
         return;
       }
@@ -87,7 +90,9 @@ export async function handleWs(
     case "remove": {
       const name = args[1];
       if (!name) {
-        await ctx.messenger.sendText(ctx.chatId, "用法：/ws remove <name>");
+        await ctx.messenger.sendText(ctx.chatId, "用法：/ws remove <name>", {
+          parseMode: "plain",
+        });
         return;
       }
       try {

@@ -257,7 +257,16 @@ export class AgentOrchestrator {
     const sess = this.deps.session.get(workspaceId);
     let agent: RuntimeAgent;
     if (sess?.agentId) {
-      agent = await this.deps.runtime.resume(sess.agentId, { cwd });
+      // 关键：@cursor/sdk 1.0.x 的 Agent.resume 不会自己恢复 model，必须由调用方显式传。
+      // 行为约定：老 agent 沿用创建时的 model（持久化在 sess.model + sess.modelParams 里），
+      // 与 /model 命令"下次新会话生效"的语义一致。fallback 到 defaultModel 只兜底旧 sess（M1 时未持久化 model）。
+      const resumedModel = sess.model
+        ? { id: sess.model, params: sess.modelParams ?? [] }
+        : this.deps.defaultModel;
+      agent = await this.deps.runtime.resume(sess.agentId, {
+        cwd,
+        model: resumedModel,
+      });
     } else {
       agent = await this.deps.runtime.create({
         cwd,

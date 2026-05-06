@@ -99,6 +99,6 @@ describe("loadConfig", () => {
     expect(cfg.images.maxImagesPerPrompt).toBe(8);
     expect(cfg.images.defaultPromptSingle).toBe("请分析这张图片");
     expect(cfg.images.defaultPromptMulti).toBe("请分析这些图片");
-    expect(cfg.images.mediaGroupDebounceMs).toBe(200);
+    expect(cfg.images.mediaGroupDebounceMs).toBe(800);
   });
 });

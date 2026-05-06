@@ -3,6 +3,8 @@ import type {
   RuntimeAgent,
   RuntimeRun,
   RuntimeStreamEvent,
+  CreateAgentOptions,
+  ResumeAgentOptions,
 } from "../../src/core/orchestrator/runtime.js";
 
 /**
@@ -11,17 +13,22 @@ import type {
  */
 export class StubAgentRuntime implements IAgentRuntime {
   public agents: StubAgent[] = [];
-  public created: { agentId?: string; cwd: string }[] = [];
+  // M2：记录 create 与 resume 的完整入参，便于断言 model 透传
+  public created: CreateAgentOptions[] = [];
+  public resumed: Array<{ agentId: string; opts: ResumeAgentOptions }> = [];
 
-  async create(opts: { agentId?: string; cwd: string }): Promise<RuntimeAgent> {
+  async create(opts: CreateAgentOptions): Promise<RuntimeAgent> {
     const a = new StubAgent(opts.agentId ?? `agent-stub-${this.agents.length + 1}`);
     this.agents.push(a);
     this.created.push(opts);
     return a;
   }
 
-  async resume(agentId: string, opts: { cwd: string }): Promise<RuntimeAgent> {
-    return this.create({ agentId, cwd: opts.cwd });
+  async resume(agentId: string, opts: ResumeAgentOptions): Promise<RuntimeAgent> {
+    this.resumed.push({ agentId, opts });
+    const a = new StubAgent(agentId);
+    this.agents.push(a);
+    return a;
   }
 }
 

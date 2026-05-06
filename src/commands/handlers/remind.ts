@@ -41,10 +41,16 @@ export async function handleRemind(
   ctx: RemindContext,
 ): Promise<void> {
   const sub = args[0];
-  if (sub === "add") return handleAdd(args.slice(1), rest, ctx);
+  // dispatch 传来的 rest 是去除命令名后的整段（如 "add text 1h 测试"），
+  // 这里把 sub 关键字也剥掉，让 handleAdd 看到的 fullRest 形如 "text 1h 测试"，
+  // 与 args.slice(1) 对齐，避免 stripLeading 把 sub 当成 body。
+  const restAfterSub = sub ? stripFirstToken(rest, sub) : rest;
+  if (sub === "add") return handleAdd(args.slice(1), restAfterSub, ctx);
   if (sub === "list") return handleList(ctx);
   if (sub === "del") return handleDel(args.slice(1), ctx);
-  await ctx.messenger.sendText(ctx.chatId, USAGE);
+  // 所有"用法/帮助"类提示走 plain parseMode：USAGE 里有 <时间> 等占位符，
+  // 默认 HTML parseMode 会把它当未知标签解析，Telegram 直接 400。
+  await ctx.messenger.sendText(ctx.chatId, USAGE, { parseMode: "plain" });
 }
 
 async function handleAdd(
@@ -54,18 +60,20 @@ async function handleAdd(
 ): Promise<void> {
   const kind = rest[0];
   if (kind !== "text" && kind !== "prompt") {
-    await ctx.messenger.sendText(ctx.chatId, USAGE);
+    await ctx.messenger.sendText(ctx.chatId, USAGE, { parseMode: "plain" });
     return;
   }
   const expr = rest[1];
   if (!expr) {
-    await ctx.messenger.sendText(ctx.chatId, USAGE);
+    await ctx.messenger.sendText(ctx.chatId, USAGE, { parseMode: "plain" });
     return;
   }
   // body 文本：去掉前两个 token（text|prompt + 时间表达式），其余原样保留空格
   const body = stripLeading(fullRest, kind, expr);
   if (!body) {
-    await ctx.messenger.sendText(ctx.chatId, "内容不能为空。\n" + USAGE);
+    await ctx.messenger.sendText(ctx.chatId, "内容不能为空。\n" + USAGE, {
+      parseMode: "plain",
+    });
     return;
   }
 
@@ -145,7 +153,9 @@ async function handleList(ctx: RemindContext): Promise<void> {
 async function handleDel(rest: string[], ctx: RemindContext): Promise<void> {
   const id = rest[0];
   if (!id) {
-    await ctx.messenger.sendText(ctx.chatId, "用法：/remind del <id>");
+    await ctx.messenger.sendText(ctx.chatId, "用法：/remind del <id>", {
+      parseMode: "plain",
+    });
     return;
   }
   await ctx.scheduler.remove(id);
@@ -157,5 +167,12 @@ function stripLeading(rest: string, kind: string, expr: string): string {
   let s = rest.trimStart();
   if (s.startsWith(kind)) s = s.slice(kind.length).trimStart();
   if (s.startsWith(expr)) s = s.slice(expr.length).trimStart();
+  return s;
+}
+
+// 把 rest 最前面的 token 剥掉。比 stripLeading 更通用，仅供 handleRemind 顶层剥 sub。
+function stripFirstToken(rest: string, token: string): string {
+  const s = rest.trimStart();
+  if (s.startsWith(token)) return s.slice(token.length).trimStart();
   return s;
 }

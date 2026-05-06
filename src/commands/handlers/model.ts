@@ -11,6 +11,7 @@ export async function handleModel(
     await ctx.messenger.sendText(
       ctx.chatId,
       "用法：/model <id>，如 /model auto",
+      { parseMode: "plain" },
     );
     return;
   }

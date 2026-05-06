@@ -61,6 +61,41 @@ describe("AgentOrchestrator", () => {
     expect(session.get("default")?.agentId).toBe(runtime.agents[0]!.agentId);
   });
 
+  // 回归测试：进程重启后 sess.agentId 还在，ensureAgent 走 resume 路径。
+  // 真实 SDK（@cursor/sdk 1.0.x）的 Agent.resume 不会自己恢复 model，必须由调用方显式传入；
+  // 否则 send 时报 "Local SDK agents require an explicit `model`."
+  // 修复：orchestrator 在 resume 时把 sess 持久化的 model + modelParams 还原成 model 对象传进 runtime.resume。
+  it("已有 sess.agentId（模拟重启）→ resume 必须把 sess 持久化的 model 透传给 runtime", async () => {
+    const { orch, runtime, session } = await makeOrchestrator();
+    // 模拟"重启前已有 session 持久化"：直接写 sess
+    await session.set("default", {
+      agentId: "agent-existing-x",
+      model: "gpt-5.3-codex",
+      modelParams: [
+        { id: "reasoning", value: "extra-high" },
+        { id: "fast", value: "false" },
+      ],
+    });
+
+    const p = orch.runPrompt({ chatId: "c1", text: "hi", force: false });
+    const agent = await waitFor(() => runtime.agents[0]);
+    const stub = await waitFor(() => agent.currentRun);
+    stub.setScript([{ type: "assistant", text: "ok" }]);
+    await p;
+
+    // 走的是 resume 而不是 create
+    expect(runtime.created.length).toBe(0);
+    expect(runtime.resumed.length).toBe(1);
+    const resumed = runtime.resumed[0]!;
+    expect(resumed.agentId).toBe("agent-existing-x");
+    // ★ 修复目标：resume.opts.model 必须由 sess 持久化字段还原而来
+    expect(resumed.opts.model?.id).toBe("gpt-5.3-codex");
+    expect(resumed.opts.model?.params).toEqual([
+      { id: "reasoning", value: "extra-high" },
+      { id: "fast", value: "false" },
+    ]);
+  });
+
   it("活跃 run 时再发文本（非 force）→ 拒绝并提示", async () => {
     const { orch, messenger, runtime } = await makeOrchestrator();
     const p1 = orch.runPrompt({ chatId: "c1", text: "long task", force: false });

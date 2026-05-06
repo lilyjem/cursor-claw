@@ -22,10 +22,15 @@ export interface TelegramMessengerConfig {
   mediaGroupDebounceMs?: number;
 }
 
-// ImageGroupBuffer 内部缓存的 photo 元数据（与 IncomingImageGroup 几乎重合，
-// 但需要额外携带 chatId / userId / username 以便聚合后构造 group 事件）
+// ImageGroupBuffer 内部缓存的 photo 元数据。
+// 关键点：data 改成 Promise<string>，让 grammy 收到 update 时可以立刻 push 占位（不阻塞下一条 update），
+// 真正的下载在后台并发跑。flush 时 await 所有 promise 再 emit。
+//
+// 为什么必须这样：grammy 的 `bot.on("message:photo", async (ctx) => {...})` 串行执行 async handler，
+// 前一个 handler 不返回下一条 update 不会处理。如果 handler 内 await 下载（耗时 ~1s），
+// album 内 3 张图的 push 间隔会被拉长到 1-2s，远超 debounce 200ms，导致 buffer 把它们拆成 3 个独立 group。
 interface PendingPhoto {
-  data: string;
+  dataPromise: Promise<string>;
   mimeType: string;
   caption?: string;
   chatId: string;
@@ -58,17 +63,32 @@ export class TelegramMessenger implements IMessenger {
       this.cfg.mediaGroupDebounceMs ?? 200,
       (items) => {
         if (items.length === 0) return;
-        // 用首张的 chatId / userId 作为整组的"主"标识；caption 取首条非空
-        const first = items[0]!;
-        const caption = items.map((i) => i.caption).find((c) => !!c);
-        const group: IncomingImageGroup = {
-          chatId: first.chatId,
-          userId: first.userId,
-          username: first.username,
-          images: items.map((i) => ({ data: i.data, mimeType: i.mimeType })),
-          caption,
-        };
-        for (const l of this.imageGroupListeners) l(group);
+        // fire 是同步签名，但下载是异步的——这里 fire-and-forget：
+        // await 完成所有 dataPromise 后再分发给 imageGroup listeners。
+        void (async () => {
+          try {
+            const datas = await Promise.all(items.map((i) => i.dataPromise));
+            // 用首张的 chatId / userId 作为整组的"主"标识；caption 取首条非空
+            const first = items[0]!;
+            const caption = items.map((i) => i.caption).find((c) => !!c);
+            const group: IncomingImageGroup = {
+              chatId: first.chatId,
+              userId: first.userId,
+              username: first.username,
+              images: items.map((i, idx) => ({
+                data: datas[idx]!,
+                mimeType: i.mimeType,
+              })),
+              caption,
+            };
+            for (const l of this.imageGroupListeners) l(group);
+          } catch (e) {
+            logger.error(
+              { err: (e as Error).message },
+              "imageGroup 下载失败，丢弃整组",
+            );
+          }
+        })();
       },
     );
 
@@ -88,7 +108,11 @@ export class TelegramMessenger implements IMessenger {
       }
     });
 
-    bot.on("message:photo", async (ctx) => {
+    // 注意：handler 故意写成同步，里面**不 await** getFile / fetch。
+    // 关键不变量：grammy 串行 dispatch async handler，前一个 await 不返回下一条 update 就不会进 push，
+    // 必然把 album 内多张图的 push 间隔拉长到 1-2s 而 debounce 仅 200ms → buffer 拆开多组。
+    // 让 handler 立刻返回，下载放在 dataPromise 里后台并发跑。
+    bot.on("message:photo", (ctx) => {
       const userId = ctx.from?.id;
       if (userId === undefined) return;
       if (
@@ -101,29 +125,31 @@ export class TelegramMessenger implements IMessenger {
       const photos = ctx.message.photo;
       const largest = photos[photos.length - 1];
       if (!largest) return;
-      try {
-        const file = await ctx.api.getFile(largest.file_id);
-        // Telegram getFile 返回的 file_path 需自己拼下载 URL
+      const fileId = largest.file_id;
+      const caption = ctx.message.caption ?? undefined;
+      const groupId = ctx.message.media_group_id ?? undefined;
+      const dataPromise = (async () => {
+        const file = await ctx.api.getFile(fileId);
         const url = `https://api.telegram.org/file/bot${this.cfg.botToken}/${file.file_path}`;
         const res = await fetch(url);
         const buf = Buffer.from(await res.arrayBuffer());
-        const data = buf.toString("base64");
-        const mimeType = "image/jpeg";
-        const caption = ctx.message.caption ?? undefined;
-        const item: PendingPhoto = {
-          data,
-          mimeType,
-          caption,
-          chatId,
-          userId,
-          username: ctx.from?.username,
-        };
-        // media_group_id 由 grammy 暴露在 ctx.message
-        const groupId = ctx.message.media_group_id ?? undefined;
-        this.buffer?.push(groupId, item);
-      } catch (e) {
-        logger.error({ err: (e as Error).message }, "下载图片失败");
-      }
+        return buf.toString("base64");
+      })();
+      // 关键：promise 已经"未 await"地附加在 item 上 push 进 buffer；
+      // 必须挂一个 catch 防止 unhandledRejection 直接让 node 崩溃，
+      // 真正的错误捕获在 buffer flush 的 Promise.all 那里。
+      dataPromise.catch(() => {
+        /* 在 flush 的 try/catch 里被处理 */
+      });
+      const item: PendingPhoto = {
+        dataPromise,
+        mimeType: "image/jpeg",
+        caption,
+        chatId,
+        userId,
+        username: ctx.from?.username,
+      };
+      this.buffer?.push(groupId, item);
     });
 
     // bot.start 是 long-polling 阻塞任务，这里不 await，让它后台跑
