@@ -24,7 +24,7 @@ Pick whatever you're already comfortable operating &mdash; cursor-claw doesn't c
 All deployment paths assume you've **built once**:
 
 ```bash
-git clone https://github.com/jem-li/cursor-claw.git /opt/cursor-claw
+git clone https://github.com/lilyjem/cursor-claw.git /opt/cursor-claw
 cd /opt/cursor-claw
 npm ci --omit=dev=false   # we still need devDeps for tsup at build time
 npm run build             # produces dist/

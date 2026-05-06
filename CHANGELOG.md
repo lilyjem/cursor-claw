@@ -114,5 +114,5 @@ First milestone release. Covers **M0 (scaffold)**, **M1 (text e2e)**, **M2 (atta
   - `docs/superpowers/plans/2026-05-05-cursor-claw-m2.md`
   - `docs/superpowers/plans/2026-05-06-streamrenderer-markdown.md`
 
-[Unreleased]: https://github.com/jem-li/cursor-claw/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/jem-li/cursor-claw/releases/tag/v0.1.0
+[Unreleased]: https://github.com/lilyjem/cursor-claw/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/lilyjem/cursor-claw/releases/tag/v0.1.0

@@ -31,7 +31,7 @@ brew install node@22
 brew link --force --overwrite node@22
 
 # 2. Clone & install
-git clone https://github.com/jem-li/cursor-claw.git
+git clone https://github.com/lilyjem/cursor-claw.git
 cd cursor-claw
 npm install
 
@@ -56,7 +56,7 @@ nvm install 22
 nvm use 22
 
 # 2. Clone & install
-git clone https://github.com/jem-li/cursor-claw.git
+git clone https://github.com/lilyjem/cursor-claw.git
 cd cursor-claw
 npm install
 
@@ -85,7 +85,7 @@ node --version    # should print v20.10+ or v22.x
 npm --version
 
 # 2. Clone & install
-git clone https://github.com/jem-li/cursor-claw.git
+git clone https://github.com/lilyjem/cursor-claw.git
 cd cursor-claw
 npm install
 

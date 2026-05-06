@@ -1,6 +1,6 @@
 # FAQ &mdash; Common errors and what they mean
 
-If your problem isn't here, please open a [GitHub issue](https://github.com/jem-li/cursor-claw/issues) with:
+If your problem isn't here, please open a [GitHub issue](https://github.com/lilyjem/cursor-claw/issues) with:
 
 - exact error message
 - `node --version`, OS / shell, and `npm ls @cursor/sdk` output
