@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import type { CommandContext } from "../dispatch.js";
 import { WorkspaceError } from "../../core/workspace/WorkspaceRegistry.js";
 import { isPathWithinAllowedRoots } from "../../core/workspace/pathPolicy.js";
+import { escapeHtml } from "../../util/html.js";
 
 // /ws 命令家族：
 //   /ws list                        显示所有工作区，标记当前为活跃
@@ -24,7 +25,10 @@ export async function handleWs(
         return;
       }
       const body = items
-        .map((w) => `${w.name === active ? "▶ " : "  "}${w.name} → ${w.path}`)
+        .map(
+          (w) =>
+            `${w.name === active ? "▶ " : "  "}${escapeHtml(w.name)} → ${escapeHtml(w.path)}`,
+        )
         .join("\n");
       await ctx.messenger.sendText(ctx.chatId, body);
       return;
@@ -42,12 +46,12 @@ export async function handleWs(
         await ctx.registry.persist();
       } catch (e) {
         if (e instanceof WorkspaceError) {
-          await ctx.messenger.sendText(ctx.chatId, e.message);
+          await ctx.messenger.sendText(ctx.chatId, escapeHtml(e.message));
           return;
         }
         throw e;
       }
-      await ctx.messenger.sendText(ctx.chatId, `当前工作区：${name}`);
+      await ctx.messenger.sendText(ctx.chatId, `当前工作区：${escapeHtml(name)}`);
       return;
     }
     case "add": {
@@ -93,12 +97,12 @@ export async function handleWs(
         await ctx.registry.persist();
       } catch (e) {
         if (e instanceof WorkspaceError) {
-          await ctx.messenger.sendText(ctx.chatId, e.message);
+          await ctx.messenger.sendText(ctx.chatId, escapeHtml(e.message));
           return;
         }
         throw e;
       }
-      await ctx.messenger.sendText(ctx.chatId, `已添加工作区：${name}`);
+      await ctx.messenger.sendText(ctx.chatId, `已添加工作区：${escapeHtml(name)}`);
       return;
     }
     case "remove": {
@@ -114,19 +118,19 @@ export async function handleWs(
         await ctx.registry.persist();
       } catch (e) {
         if (e instanceof WorkspaceError) {
-          await ctx.messenger.sendText(ctx.chatId, e.message);
+          await ctx.messenger.sendText(ctx.chatId, escapeHtml(e.message));
           return;
         }
         throw e;
       }
-      await ctx.messenger.sendText(ctx.chatId, `已注销工作区：${name}`);
+      await ctx.messenger.sendText(ctx.chatId, `已注销工作区：${escapeHtml(name)}`);
       return;
     }
     case "path": {
       const w = ctx.registry.getActive();
       await ctx.messenger.sendText(
         ctx.chatId,
-        w ? w.path : "（没有活跃工作区）",
+        w ? escapeHtml(w.path) : "（没有活跃工作区）",
       );
       return;
     }
