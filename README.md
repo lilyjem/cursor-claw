@@ -52,7 +52,7 @@ Cursor's agent capability is amazing &mdash; but it lives **inside the IDE on yo
 ### macOS / Linux / WSL2
 
 ```bash
-git clone https://github.com/jem-li/cursor-claw.git
+git clone https://github.com/lilyjem/cursor-claw.git
 cd cursor-claw
 npm install
 cp config.example.json config.json
@@ -66,7 +66,7 @@ npm run dev
 ### Windows (PowerShell, native)
 
 ```powershell
-git clone https://github.com/jem-li/cursor-claw.git
+git clone https://github.com/lilyjem/cursor-claw.git
 cd cursor-claw
 npm install
 Copy-Item config.example.json config.json

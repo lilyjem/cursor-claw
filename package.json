@@ -6,13 +6,13 @@
   "type": "module",
   "license": "MIT",
   "author": "Jem Li",
-  "homepage": "https://github.com/jem-li/cursor-claw#readme",
+  "homepage": "https://github.com/lilyjem/cursor-claw#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jem-li/cursor-claw.git"
+    "url": "git+https://github.com/lilyjem/cursor-claw.git"
   },
   "bugs": {
-    "url": "https://github.com/jem-li/cursor-claw/issues"
+    "url": "https://github.com/lilyjem/cursor-claw/issues"
   },
   "keywords": [
     "cursor",

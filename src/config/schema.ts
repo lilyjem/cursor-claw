@@ -82,6 +82,33 @@ export const ConfigSchema = z.object({
       defaultPromptMulti: "请分析这些图片",
       mediaGroupDebounceMs: 800,
     }),
+  // F-06：三层资源 cap，全部带默认值，向后兼容旧 config.json
+  // - message：单用户 messenger 入口限速（防 owner 误操作 + 凭据被盗后的洪水）
+  // - agentCreate：cached miss 进入新 Agent.create / resume 时的限速；cached 命中不计入
+  // - reminders：单用户 reminder 总数上限（防 /remind add 灌爆持久化文件）
+  rateLimit: z
+    .object({
+      message: z
+        .object({
+          capacity: z.number().int().min(1).default(4),
+          refillPerSec: z.number().min(0.1).default(2),
+        })
+        .default({ capacity: 4, refillPerSec: 2 }),
+      agentCreate: z
+        .object({
+          capacity: z.number().int().min(1).default(10),
+          refillPerSec: z.number().min(0.01).default(10 / 60),
+        })
+        .default({ capacity: 10, refillPerSec: 10 / 60 }),
+      reminders: z
+        .object({ maxPerUser: z.number().int().min(1).default(100) })
+        .default({ maxPerUser: 100 }),
+    })
+    .default({
+      message: { capacity: 4, refillPerSec: 2 },
+      agentCreate: { capacity: 10, refillPerSec: 10 / 60 },
+      reminders: { maxPerUser: 100 },
+    }),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
