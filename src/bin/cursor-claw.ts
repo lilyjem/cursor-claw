@@ -16,6 +16,7 @@ import { ReminderScheduler } from "../core/reminders/ReminderScheduler.js";
 import { parseCommand } from "../commands/parser.js";
 import { dispatchCommand } from "../commands/dispatch.js";
 import { parseForcePrefix } from "../core/orchestrator/busyPolicy.js";
+import { sanitizeForOutput } from "../util/sanitize.js";
 
 // cursor-claw 主入口（M1 + M2）：加载 config → 装配单进程依赖 → 启 long-polling
 async function main(): Promise<void> {
@@ -202,9 +203,12 @@ async function main(): Promise<void> {
     } catch (e) {
       logger.error({ err: (e as Error).message }, "handleImageGroup 顶层异常");
       try {
+        // F-01 深度防御：用户端 echo 之前先 sanitize，避免 token / API key 通过 error.message 落到 Telegram。
+        // 即使 downloadFile 已经在源头消毒，这一层也兜底，覆盖任何未来新增的错误源。
+        const safeMsg = sanitizeForOutput((e as Error).message);
         await messenger.sendText(
           chatId,
-          `处理图片失败：${(e as Error).message}`.slice(0, 800),
+          `处理图片失败：${safeMsg}`.slice(0, 800),
           { parseMode: "plain" },
         );
       } catch {
@@ -243,10 +247,12 @@ async function main(): Promise<void> {
     } catch (e) {
       logger.error({ err: (e as Error).message }, "handleText 顶层异常");
       try {
+        // F-01 深度防御：sanitize 后再 echo，参见 handleImageGroup 同样位置注释
+        const safeMsg = sanitizeForOutput((e as Error).message);
         // 用 plain 模式回个最终错误提示，避免被 HTML 解析坑住
         await messenger.sendText(
           chatId,
-          `内部错误：${(e as Error).message}`.slice(0, 800),
+          `内部错误：${safeMsg}`.slice(0, 800),
           { parseMode: "plain" },
         );
       } catch {
