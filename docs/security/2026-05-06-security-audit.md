@@ -31,6 +31,9 @@
 | ID | 标题 | 严重级 | 领域 | 状态 | 修复 PR |
 |---|---|---|---|---|---|
 | F-01 | Telegram 文件下载 URL 内含 botToken，错误信息泄露面 | Low | D1 | Open | - |
+| F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | D2 | Open | - |
+| F-03 | tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越） | Medium | D2 | Open | - |
+| F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | Open | - |
 
 ---
 
@@ -121,7 +124,173 @@ logger.error({ err: (e as Error).message }, "imageGroup 下载失败，丢弃整
 
 ## D2 · 依赖供应链
 
-> _T2 任务填写。_
+### 扫描清单与证据
+
+| 扫描项 | 工具 / 命令 | 结果 |
+|---|---|---|
+| `npm audit` | `npm audit --json` | 严重级分布 `{low: 2, moderate: 1, high: 7, critical: 0, total: 10}`；总依赖数 prod 96 / dev 267 / optional 158 / total 436 |
+| 漏洞集中位置 | npm advisory | 集中在两条传递链：(1) `@cursor/sdk → @connectrpc/connect-node → undici`；(2) `@cursor/sdk → sqlite3 → node-gyp → make-fetch-happen → cacache → tar / http-proxy-agent / @tootallnate/once` |
+| `package-lock.json` 完整性 | `npm ls --all --json` | 无 problem 报告；lockfile 存在且与 node_modules 一致 |
+| install-time lifecycle scripts | 全 node_modules 扫描 | 仅 2 个真实 install/postinstall：`esbuild`（tsup 编译需）、`sqlite3`（@cursor/sdk 透传，native binding 重编译需）；其余 31 个 `prepare`/`prepublish` 脚本均为合理项目构建命令（husky / npm run build / tsc 等） |
+| `@cursor/sdk` 版本检查 | `npm view @cursor/sdk version` | 当前 `1.0.12` 为 npm 上最新版；不能通过升级直接依赖来修透传漏洞，必须用 `overrides` |
+| 关键直接依赖维护状态 | npm view | `grammy@1.42.0` 活跃维护 / `pino@10.3.1` 活跃 / `zod@3.25` 主流 / `dayjs@1.11.20` 维护 / `commander@14.0.3` 维护，无废弃 |
+
+### F-02 · undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响）
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **High** |
+| CWE | CWE-444（HTTP Request Smuggling）/ CWE-93（CRLF Injection）/ CWE-400（Resource Exhaustion） |
+| 领域 | D2 |
+| 位置 | `package-lock.json` → `undici` (≤ 6.23.0) 透传自 `@cursor/sdk` → `@connectrpc/connect-node` |
+| 状态 | Open |
+| 修复 PR | - |
+
+**漏洞清单（5 个 GHSA）**
+
+| GHSA | 标题 | 触发条件 |
+|---|---|---|
+| GHSA-g9mf-h72j-4rw9 | Undici unbounded decompression chain in HTTP responses on Node.js Fetch via Content-Encoding | fetch 接收恶意服务器返回的 nested gzip 压缩 → 资源耗尽 |
+| GHSA-2mjp-6q6p-2qxm | Undici HTTP Request/Response Smuggling | undici 作为 HTTP 服务器或反代时 |
+| GHSA-vrm6-8vpv-qv8q | Undici Unbounded Memory Consumption in WebSocket permessage-deflate | WebSocket 接收恶意压缩帧 |
+| GHSA-v9p9-hfj2-hcw8 | Undici Unhandled Exception in WebSocket Client（invalid `server_max_window_bits`） | WebSocket 握手时 |
+| GHSA-4992-7rv2-5pvq | Undici **CRLF Injection in `upgrade` option** | 用户控制 fetch 调用的 `upgrade` 字段 |
+
+**复现 / 触发条件**
+
+cursor-claw 运行时实际使用 undici 的位置：
+
+1. `TelegramMessenger.ts:134` 中 `await fetch(url)` 下载图片 — Node 18+ 内置 fetch 走 undici。
+2. `@cursor/sdk` 内部走 `@connectrpc/connect-node` 调远端 → undici 客户端。
+
+cursor-claw **不**作为 HTTP 服务器，所以 Smuggling 漏洞（GHSA-2mjp-6q6p-2qxm）实际不可触发；**不**用 WebSocket，所以两个 WS 漏洞不触发；**不**给 fetch 传 `upgrade` 选项，所以 CRLF 不触发。
+
+实际暴露面：
+
+- **GHSA-g9mf-h72j-4rw9（unbounded decompression）**：恶意 Telegram CDN 服务器（理论上 Telegram 平台被劫持）返回 nested gzip 即可让 cursor-claw 的 fetch 进程内存耗尽 → DoS 主机。但 Telegram CDN 受 Telegram 控制，实际场景为 MITM 时（应该被 TLS 阻挡）。
+
+**影响**
+
+主要风险为 DoS（资源耗尽）。RCE/数据泄露在当前调用模式下不构成。
+
+**修复建议**
+
+在 `package.json` 加 `overrides` 强制 undici 升级到修复版本（≥ 6.21.2）：
+
+```json
+{
+  "overrides": {
+    "undici": "^6.21.2"
+  }
+}
+```
+
+之后跑：
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm test  # 确认 141 个测试不回归
+npm audit
+```
+
+**修复成本**：M（< 半天，需重装依赖 + 全量回归测试 + 验证 @connectrpc/connect-node 与新 undici 兼容）。
+
+### F-03 · tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越）
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Medium**（仅 install 时触发，运行时不接触） |
+| CWE | CWE-22（Path Traversal）/ CWE-59（Symlink）/ CWE-362（Race Condition） |
+| 领域 | D2 |
+| 位置 | `package-lock.json` → `tar` 透传自 `@cursor/sdk` → `sqlite3` → `node-gyp` → `make-fetch-happen` → `cacache` |
+| 状态 | Open |
+| 修复 PR | - |
+
+**漏洞清单（6 个 GHSA，全部 high，集中在 node-tar）**
+
+| 标题 |
+|---|
+| Vulnerable to Arbitrary File Creation/Overwrite via Hardlink Path Traversal |
+| Vulnerable to Arbitrary File Overwrite and Symlink Poisoning via Insufficient Path Sanitization |
+| Arbitrary File Read/Write via Hardlink Target Escape Through Symlink Chain |
+| Hardlink Path Traversal via Drive-Relative Linkpath |
+| Symlink Path Traversal via Drive-Relative Linkpath |
+| Race Condition in Path Reservations via Unicode Ligature Collisions on macOS APFS |
+
+**复现 / 触发条件**
+
+`tar` 仅在 npm install 流程被使用：
+
+- `sqlite3@5.1.7` 的 `install` script 是 `prebuild-install -r napi || node-gyp rebuild`
+- `prebuild-install` 走 `make-fetch-happen` → `cacache` → 下载预编译 native binding tar 包并解压
+- 解压时若 tar 文件含恶意 hardlink/symlink，会写入 install 路径之外的位置
+
+cursor-claw 运行时**不直接调用 tar**（grep 验证：源码无 `require('tar')`）。
+
+**影响**
+
+供应链风险：当攻击者能向 npm registry 投毒（typosquat / 维护者账号被入侵 / 中间人篡改 npm 响应）注入恶意 tar archive，本机 npm install 时可被路径穿越写入主机敏感位置。已 lockfile 锁版本 + 完整性校验（`integrity` SRI hash）作为已存在缓解。
+
+**修复建议**
+
+在 `package.json` 加 `overrides`：
+
+```json
+{
+  "overrides": {
+    "tar": "^6.2.1",
+    "cacache": "^18.0.4",
+    "make-fetch-happen": "^13.0.1",
+    "node-gyp": "^10.2.0",
+    "http-proxy-agent": "^7.0.2",
+    "@tootallnate/once": "npm:@tootallnate/once@2.0.0"
+  }
+}
+```
+
+注意：`@tootallnate/once@1.x` 已被废弃；可能需要 review 替代方案。
+
+之后跑 `rm -rf node_modules package-lock.json && npm install && npm audit`，期望 audit 全 clean。
+
+**修复成本**：M（半天，需调试 overrides 与 sqlite3 native binding 兼容性）。
+
+### F-04 · 缺少 CI 上的 npm audit gate
+
+| 字段 | 内容 |
+|---|---|
+| 严重级 | **Low**（流程性） |
+| CWE | CWE-1104（Use of Unmaintained Third Party Components） |
+| 领域 | D2 |
+| 位置 | `package.json` scripts；`.github/` 下无 workflow |
+| 状态 | Open |
+| 修复 PR | - |
+
+**复现 / 触发条件**
+
+目前仓库无 GitHub Actions workflow 跑 `npm audit`，新漏洞披露后无自动告警。已配置 GitHub 默认会跑 Dependabot Security Updates（仓库 public 后默认启用），但应在 CI 流水线显式 gate。
+
+**影响**
+
+新 CVE 披露后 P0/P1 修复延迟。
+
+**修复建议**
+
+加 `package.json` script：
+
+```json
+{
+  "scripts": {
+    "audit:ci": "npm audit --audit-level=high"
+  }
+}
+```
+
+并新增 `.github/workflows/security.yml`，每个 push / PR / 每周 cron 跑该命令。可结合 Dependabot 配置文件 `.github/dependabot.yml` 让 npm 依赖自动 PR。
+
+**修复成本**：S（< 30 分钟）。
+
+
 
 ---
 
