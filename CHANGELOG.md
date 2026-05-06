@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Add full bilingual README, MIT `LICENSE`, and `docs/{INSTALL,PREREQUISITES,DEPLOYMENT,FAQ}.md`
 - Add `.github/CONTRIBUTING.md`
+- Security audit baseline: `docs/security/2026-05-06-{threat-model,security-audit}.md` (14 findings identified, 0 Critical / 2 High)
+
+### Security
+- **F-05 (High)** Enforce `maxFileSizeBytes` cap across the photo download path with three gates (file_size pre-check / content-length / streaming accumulator). Closes the OOM DoS attack a single allowed user could trigger by sending oversized files. Side-effect: closes one of the F-01 user-side leak vectors by sanitizing fetch error messages. ([PR #1](https://github.com/lilyjem/cursor-claw/pull/1))
 
 ---
 

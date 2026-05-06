@@ -34,7 +34,7 @@
 | F-02 | undici 传递依赖含 5 个 High 漏洞（运行时 fetch 受影响） | High | D2 | Open | - |
 | F-03 | tar 传递依赖含 6 个 High 漏洞（install-time 路径穿越） | Medium | D2 | Open | - |
 | F-04 | 缺少 CI 上的 npm audit gate | Low | D2 | Open | - |
-| F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | D3 | Open | - |
+| F-05 | `maxFileSizeBytes` 配置项无运行时强制点 | High | D3 | **Fixed** | [#1](https://github.com/lilyjem/cursor-claw/pull/1) |
 | F-06 | 无单用户速率/flood/资源 cap | Medium | D3 | Open | - |
 | F-07 | `/ws add` 接受任意绝对路径，无路径白名单 | Info | D3 | Open | - |
 | F-08 | 多个 echo 路径未 escape user-controlled 字符串到 HTML | Low | D3 | Open | - |
@@ -343,8 +343,8 @@ cursor-claw 运行时**不直接调用 tar**（grep 验证：源码无 `require(
 | CWE | CWE-770（Allocation of Resources Without Limits）/ CWE-400（Uncontrolled Resource Consumption） |
 | 领域 | D3 |
 | 位置 | `src/config/schema.ts:45-60`（定义） + `src/adapters/telegram/TelegramMessenger.ts:131-137`（应实施而未实施） |
-| 状态 | Open |
-| 修复 PR | - |
+| 状态 | **Fixed** |
+| 修复 PR | [#1](https://github.com/lilyjem/cursor-claw/pull/1)（commit `c582185`） |
 
 **复现 / 触发条件**
 
